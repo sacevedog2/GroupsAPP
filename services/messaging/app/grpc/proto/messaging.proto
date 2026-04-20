@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package messaging.v1;
+
+message EventSubscriptionRequest {
+  string consumer_id = 1;
+  repeated string event_types = 2;
+}
+
+message MessagingEvent {
+  string id = 1;
+  string event_type = 2;
+  string scope_type = 3;
+  string scope_id = 4;
+  string payload_json = 5;
+  int64 created_at_epoch_ms = 6;
+}
+
+service MessagingInternal {
+  rpc StreamEvents(EventSubscriptionRequest) returns (stream MessagingEvent);
+}
