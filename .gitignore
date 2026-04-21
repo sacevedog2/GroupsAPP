@@ -6,3 +6,6 @@ __pycache__/
 data/
 app/grpc/generated/
 *.pyc
+.env
+.DS_Store
+.vscode/
