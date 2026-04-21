@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: groupsapp-auth
+  labels:
+    app: groupsapp-auth
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: groupsapp-auth
+  template:
+    metadata:
+      labels:
+        app: groupsapp-auth
+    spec:
+      containers:
+        - name: auth
+          image: <aws_account_id>.dkr.ecr.<region>.amazonaws.com/groupsapp-auth:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8081
+            - name: grpc
+              containerPort: 50052
+          envFrom:
+            - configMapRef:
+                name: auth-config
+            - secretRef:
+                name: auth-secrets
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20

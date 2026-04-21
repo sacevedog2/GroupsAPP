@@ -1,0 +1,1 @@
+"""GroupsApp authentication microservice."""

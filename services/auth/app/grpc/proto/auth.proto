@@ -1,0 +1,49 @@
+syntax = "proto3";
+
+package auth.v1;
+
+message TokenValidationRequest {
+  string access_token = 1;
+}
+
+message TokenValidationResponse {
+  bool valid = 1;
+  string reason = 2;
+  string user_id = 3;
+  string email = 4;
+  int64 expires_at_epoch_ms = 5;
+}
+
+message UserLookupRequest {
+  string user_id = 1;
+}
+
+message UserProfile {
+  bool found = 1;
+  string user_id = 2;
+  string email = 3;
+  string display_name = 4;
+  bool is_active = 5;
+  int64 created_at_epoch_ms = 6;
+  int64 last_login_at_epoch_ms = 7;
+}
+
+message EventSubscriptionRequest {
+  string consumer_id = 1;
+  repeated string event_types = 2;
+}
+
+message AuthEvent {
+  string id = 1;
+  string event_type = 2;
+  string subject_type = 3;
+  string subject_id = 4;
+  string payload_json = 5;
+  int64 created_at_epoch_ms = 6;
+}
+
+service AuthInternal {
+  rpc ValidateToken(TokenValidationRequest) returns (TokenValidationResponse);
+  rpc GetUser(UserLookupRequest) returns (UserProfile);
+  rpc StreamEvents(EventSubscriptionRequest) returns (stream AuthEvent);
+}
