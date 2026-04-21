@@ -167,5 +167,26 @@ class AuthService:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"User '{user_id}' no existe.",
+        return user
+
+    async def update_presence(self, user_id: str, is_online: bool) -> User:
+        user = await self.get_user_by_id(user_id)
+        user.is_online = is_online
+        
+        await self.session.commit()
+        await self.session.refresh(user)
+
+        await self.event_publisher.publish(
+            DomainEvent(
+                id=str(uuid4()),
+                event_type="user.presence_changed",
+                subject_type="user",
+                subject_id=user.user_id,
+                payload={
+                    "user_id": user.user_id,
+                    "is_online": user.is_online,
+                },
+                created_at=datetime.now(timezone.utc),
             )
+        )
         return user

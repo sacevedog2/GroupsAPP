@@ -26,7 +26,6 @@ message UserProfile {
   bool is_active = 5;
   int64 created_at_epoch_ms = 6;
   int64 last_login_at_epoch_ms = 7;
-  bool is_online = 8;
 }
 
 message EventSubscriptionRequest {

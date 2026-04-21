@@ -13,11 +13,16 @@ class UserOut(BaseModel):
     email: str
     display_name: str | None = None
     is_active: bool
+    is_online: bool
     created_at: datetime
     updated_at: datetime
     last_login_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class PresenceUpdateRequest(BaseModel):
+    is_online: bool
 
 
 class AccessTokenOut(BaseModel):

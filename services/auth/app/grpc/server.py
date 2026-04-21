@@ -93,6 +93,7 @@ class AuthInternalServicer:
             last_login_at_epoch_ms=(
                 int(user.last_login_at.timestamp() * 1000) if user.last_login_at else 0
             ),
+            is_online=user.is_online,
         )
 
     async def StreamEvents(self, request, context):  # noqa: N802 (gRPC naming)

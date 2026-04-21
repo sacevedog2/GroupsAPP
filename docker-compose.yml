@@ -1,0 +1,115 @@
+version: '3.9'
+
+services:
+  # --- Infraestructura compartida ---
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq-shared
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    networks:
+      - groupsapp-network
+
+  # --- Base de datos para Groups Service ---
+  groups-db:
+    image: postgres:15-alpine
+    container_name: groups-db
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=groupsdb
+    ports:
+      - "5432:5432"
+    volumes:
+      - groups-db-data:/var/lib/postgresql/data
+    networks:
+      - groupsapp-network
+
+  # --- Base de datos para Auth Service ---
+  auth-db:
+    image: postgres:15-alpine
+    container_name: auth-db
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=authdb
+    ports:
+      - "5433:5432"
+    volumes:
+      - auth-db-data:/var/lib/postgresql/data
+    networks:
+      - groupsapp-network
+
+  # --- Microservicio de Autenticación ---
+  auth-service:
+    build:
+      context: ./services/auth
+      dockerfile: Dockerfile
+    container_name: auth-service
+    ports:
+      - "8082:8000"
+      - "50050:50051" # Puerto gRPC host en 50050
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@auth-db:5432/authdb
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
+      - JWT_SECRET_KEY=supersecretkey
+      - JWT_ISSUER=groupsapp
+      - SERVICE_NAME=auth-service
+      - GRPC_HOST=0.0.0.0
+      - GRPC_PORT=50051
+    depends_on:
+      - auth-db
+      - rabbitmq
+    networks:
+      - groupsapp-network
+
+  # --- Microservicio de Grupos ---
+  groups-service:
+    build:
+      context: ./services/groups
+      dockerfile: Dockerfile
+    container_name: groups-service
+    ports:
+      - "8081:8081"
+      - "50052:50051" # Puerto gRPC host en 50052 para no chocar con auth y messaging
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@groups-db:5432/groupsdb
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
+      - AUTH_GRPC_URL=auth-service:50051
+    depends_on:
+      - groups-db
+      - rabbitmq
+      - auth-service
+    networks:
+      - groupsapp-network
+
+  # --- Microservicio de Mensajería ---
+  messaging-service:
+    build:
+      context: ./services/messaging
+      dockerfile: Dockerfile
+    container_name: messaging-service
+    env_file:
+      - ./services/messaging/.env.example # Usa el example como default
+    environment:
+      # Sobrescribimos el host de rabbitmq para que apunte al contenedor compartido
+      - RABBITMQ_HOST=rabbitmq
+    ports:
+      - "8080:8080"
+      - "50051:50051"
+    volumes:
+      - ./services/messaging/data:/app/data
+    depends_on:
+      - rabbitmq
+    networks:
+      - groupsapp-network
+
+volumes:
+  groups-db-data:
+  auth-db-data:
+  messaging-data:
+
+networks:
+  groupsapp-network:
+    driver: bridge

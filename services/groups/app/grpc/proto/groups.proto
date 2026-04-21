@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package groups;
+
+service GroupsInternal {
+    // Permite verificar si un usuario pertenece a un grupo o a un canal
+    rpc CheckMembership (CheckMembershipRequest) returns (CheckMembershipResponse) {}
+    
+    // Verifica si dos usuarios comparten algún grupo (para permitir 1 a 1)
+    rpc CheckSharedGroup (CheckSharedGroupRequest) returns (CheckSharedGroupResponse) {}
+}
+
+message CheckMembershipRequest {
+    string user_id = 1;
+    string scope_type = 2; // "group" o "channel"
+    string scope_id = 3;
+}
+
+message CheckMembershipResponse {
+    bool is_member = 1;
+    string role = 2; // "admin", "member", o vacio si no es miembro
+}
+
+message CheckSharedGroupRequest {
+    string user_id_1 = 1;
+    string user_id_2 = 2;
+}
+
+message CheckSharedGroupResponse {
+    bool share_group = 1;
+}

@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  groups-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: groups-service
+    ports:
+      - "8081:8081"
+      - "50051:50051"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@groups-db:5432/groupsdb
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
+    depends_on:
+      - groups-db
+      - rabbitmq
+    networks:
+      - groups-network
+
+  groups-db:
+    image: postgres:15-alpine
+    container_name: groups-db
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=groupsdb
+    ports:
+      - "5432:5432"
+    volumes:
+      - groups-db-data:/var/lib/postgresql/data
+    networks:
+      - groups-network
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq-groups
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    networks:
+      - groups-network
+
+volumes:
+  groups-db-data:
+
+networks:
+  groups-network:
+    driver: bridge

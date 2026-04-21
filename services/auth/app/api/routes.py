@@ -9,9 +9,9 @@ from app.schemas.auth import (
     AccessTokenOut,
     AuthResponse,
     LoginRequest,
-    RegisterRequest,
     TokenIntrospectionOut,
     UserOut,
+    PresenceUpdateRequest,
 )
 from app.services.auth_service import AuthService
 
@@ -88,3 +88,13 @@ async def introspect_token(
         user=UserOut.model_validate(user),
         expires_at_epoch_ms=expires_at_epoch_ms,
     )
+
+@router.post("/presence", response_model=UserOut, status_code=status.HTTP_200_OK)
+async def update_presence(
+    payload: PresenceUpdateRequest,
+    access_token: str = Depends(get_bearer_token),
+    service: AuthService = Depends(get_auth_service),
+) -> UserOut:
+    user, _ = await service.get_current_user(access_token)
+    updated_user = await service.update_presence(user.user_id, payload.is_online)
+    return UserOut.model_validate(updated_user)
