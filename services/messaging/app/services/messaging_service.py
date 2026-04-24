@@ -46,7 +46,7 @@ class MessagingService:
         return f"dm_{digest[:40]}"
 
     async def ensure_direct_conversation(
-        self, user_a: str, user_b: str
+        self, user_a: str, user_b: str, actor_user_id: str | None = None
     ) -> DirectConversation:
         normalized_a = user_a.strip().lower()
         normalized_b = user_b.strip().lower()
@@ -78,7 +78,24 @@ class MessagingService:
             ]
         )
         await self.session.commit()
-        return await self.get_direct_conversation_record(scope_id)
+        conversation = await self.get_direct_conversation_record(scope_id)
+
+        await self.event_publisher.publish(
+            DomainEvent(
+                id=str(uuid4()),
+                event_type="direct_conversation.started",
+                scope_type=ScopeType.DIRECT,
+                scope_id=scope_id,
+                payload={
+                    "scope_id": scope_id,
+                    "user_id": normalized_a,
+                    "peer_user_id": normalized_b,
+                    "actor_user_id": (actor_user_id or normalized_a).strip().lower(),
+                },
+                created_at=datetime.now(timezone.utc),
+            )
+        )
+        return conversation
 
     async def get_direct_conversation_record(
         self, scope_id: str
@@ -175,7 +192,7 @@ class MessagingService:
                 if participant != payload.sender_id
             )
             conversation = await self.ensure_direct_conversation(
-                payload.sender_id, peer_user_id
+                payload.sender_id, peer_user_id, actor_user_id=payload.sender_id
             )
             scope_id = conversation.scope_id
         elif not scope_id:
@@ -301,7 +318,7 @@ class MessagingService:
         self, payload: DirectConversationStartRequest
     ) -> dict[str, object]:
         conversation = await self.ensure_direct_conversation(
-            payload.user_id, payload.peer_user_id
+            payload.user_id, payload.peer_user_id, actor_user_id=payload.user_id
         )
         scope_id = conversation.scope_id
         last_message = await self._get_latest_message_for_scope(

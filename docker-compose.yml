@@ -105,6 +105,28 @@ services:
     networks:
       - groupsapp-network
 
+  # --- Microservicio de Notificaciones ---
+  notifications-service:
+    build:
+      context: ./services/notifications
+      dockerfile: Dockerfile
+    container_name: notifications-service
+    env_file:
+      - ./services/notifications/.env.example
+    environment:
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
+    ports:
+      - "8083:8083"
+    volumes:
+      - ./services/notifications/data:/app/data
+    depends_on:
+      - rabbitmq
+      - auth-service
+      - messaging-service
+      - groups-service
+    networks:
+      - groupsapp-network
+
 volumes:
   groups-db-data:
   auth-db-data:

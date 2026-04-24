@@ -88,6 +88,14 @@
           </div>
         </header>
 
+        <section id="notificationWidget" class="notification-widget hidden">
+          <div class="notification-head">
+            <strong>Notificaciones</strong>
+            <span id="notificationCount" class="unread-badge">0</span>
+          </div>
+          <div id="notificationList" class="notification-list"></div>
+        </section>
+
         <main class="workspace-grid">
           <aside class="sidebar">
             <section class="panel">
@@ -198,6 +206,10 @@
             <label>
               Groups API
               <input id="groupsBaseUrl" placeholder="http://localhost:8081" />
+            </label>
+            <label>
+              Notifications API
+              <input id="notificationsBaseUrl" placeholder="http://localhost:8083" />
             </label>
             <button id="btnSaveSettings" type="button" class="btn btn-primary btn-block">
               Guardar ajustes

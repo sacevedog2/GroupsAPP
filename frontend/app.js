@@ -8,6 +8,7 @@ const DEFAULT_SETTINGS = {
   auth: "http://localhost:8082",
   messaging: "http://localhost:8080",
   groups: "http://localhost:8081",
+  notifications: "http://localhost:8083",
 };
 
 const POLL_MS = 4000;
@@ -24,6 +25,8 @@ const state = {
   messagesByConversation: {},
   usersById: {},
   groupMembersByGroup: {},
+  notifications: [],
+  unreadNotificationCount: 0,
   pollTimer: null,
 };
 
@@ -78,8 +81,12 @@ function cacheRefs() {
     "authBaseUrl",
     "messagingBaseUrl",
     "groupsBaseUrl",
+    "notificationsBaseUrl",
     "output",
     "toastRegion",
+    "notificationWidget",
+    "notificationCount",
+    "notificationList",
   ];
 
   for (const id of ids) {
@@ -205,6 +212,7 @@ function syncSettingsInputs() {
   refs.authBaseUrl.value = state.settings.auth;
   refs.messagingBaseUrl.value = state.settings.messaging;
   refs.groupsBaseUrl.value = state.settings.groups;
+  refs.notificationsBaseUrl.value = state.settings.notifications;
 }
 
 function openSettingsDrawer(open) {
@@ -231,6 +239,9 @@ function updateProfileHeader() {
 function rebuildConversations() {
   state.conversations = [...state.directConversations, ...state.groupConversations].sort(
     (left, right) => {
+      const leftUnread = left.unread_count > 0 ? 1 : 0;
+      const rightUnread = right.unread_count > 0 ? 1 : 0;
+      if (leftUnread !== rightUnread) return rightUnread - leftUnread;
       const leftTime = Date.parse(left.updated_at || "") || 0;
       const rightTime = Date.parse(right.updated_at || "") || 0;
       return rightTime - leftTime;
@@ -264,9 +275,11 @@ function renderConversationList() {
           ? `@${conversation.peer_user_id}`
           : conversation.subtitle || "Grupo";
       const preview = conversation.preview || "Todavia no hay mensajes.";
+      const unreadIcon =
+        conversation.unread_count > 0 ? '<span class="unread-dot" title="No leido"></span>' : "";
       const unread =
         conversation.unread_count > 0
-          ? `<span class="unread-badge">${conversation.unread_count}</span>`
+          ? `<span class="unread-badge">${unreadIcon}${conversation.unread_count}</span>`
           : `<span class="kind-badge">${conversation.scope_type === "group" ? "grupo" : "directo"}</span>`;
       const presence =
         conversation.scope_type === "direct"
@@ -347,6 +360,39 @@ function getPeerReceiptStatus(message) {
   return peerReceipt?.status || "";
 }
 
+function getUnreadNotificationsForScope(scopeType, scopeId) {
+  return state.notifications.filter(
+    (notification) =>
+      !notification.is_read &&
+      notification.scope_type === scopeType &&
+      notification.scope_id === scopeId
+  );
+}
+
+function renderNotificationWidget() {
+  refs.notificationCount.textContent = String(state.unreadNotificationCount);
+  refs.notificationWidget.classList.toggle(
+    "hidden",
+    !isAuthenticated() || state.unreadNotificationCount === 0
+  );
+
+  const unread = state.notifications
+    .filter((notification) => !notification.is_read)
+    .slice(0, 5);
+
+  refs.notificationList.innerHTML = unread
+    .map(
+      (notification) => `
+        <article class="notification-item">
+          <strong>${escapeHtml(notification.title)}</strong>
+          <p>${escapeHtml(notification.body)}</p>
+          <time>${escapeHtml(formatDate(notification.created_at))}</time>
+        </article>
+      `
+    )
+    .join("");
+}
+
 function renderMessages() {
   const conversation = getSelectedConversation();
   if (!conversation) {
@@ -399,6 +445,7 @@ function renderApp() {
   renderConversationList();
   renderChatHeader();
   renderMessages();
+  renderNotificationWidget();
 }
 
 async function runWithBusyState(button, label, action) {
@@ -559,6 +606,18 @@ async function fetchDirectInbox() {
   }));
 }
 
+async function fetchNotifications() {
+  if (!isAuthenticated()) return;
+
+  const data = await request(
+    `${state.settings.notifications}/v1/notifications?user_id=${encodeURIComponent(
+      state.user.user_id
+    )}&limit=50`
+  );
+  state.notifications = Array.isArray(data.items) ? data.items : [];
+  state.unreadNotificationCount = data.unread_count || 0;
+}
+
 async function fetchGroupMembers(groupId) {
   const data = await request(`${state.settings.groups}/v1/groups/${groupId}/members`);
   state.groupMembersByGroup[groupId] = Array.isArray(data) ? data : [];
@@ -599,7 +658,7 @@ async function fetchGroups() {
         title: group.name,
         subtitle: group.description || "Grupo",
         preview: getGroupPreview(group),
-        unread_count: 0,
+        unread_count: getUnreadNotificationsForScope("group", group.id).length,
         member_count: Array.isArray(members) ? members.length : 0,
         updated_at: getGroupUpdatedAt(group),
       };
@@ -614,6 +673,10 @@ async function refreshWorkspace(options = {}) {
     return;
   }
 
+  await fetchNotifications().catch(() => {
+    state.notifications = [];
+    state.unreadNotificationCount = 0;
+  });
   await Promise.all([fetchDirectInbox(), fetchGroups()]);
 
   rebuildConversations();
@@ -766,6 +829,22 @@ async function fetchMessages(conversationKeyValue, options = {}) {
   }
 }
 
+async function markNotificationsReadForConversation(conversation) {
+  if (!conversation || !isAuthenticated()) return;
+  await request(
+    `${state.settings.notifications}/v1/notifications/read?user_id=${encodeURIComponent(
+      state.user.user_id
+    )}&scope_type=${encodeURIComponent(conversation.scope_type)}&scope_id=${encodeURIComponent(
+      conversation.scope_id
+    )}`,
+    {
+      method: "POST",
+      body: JSON.stringify({ notification_ids: [] }),
+    }
+  );
+  await fetchNotifications();
+}
+
 async function sendMessage() {
   const conversation = getSelectedConversation();
   if (!conversation) {
@@ -809,9 +888,11 @@ function selectConversation(key) {
   state.selectedConversationKey = key;
   persistUi();
   renderApp();
+  const conversation = getSelectedConversation();
   fetchMessages(key, { markRead: true }).catch((error) => {
     showToast(String(error), "error");
   });
+  markNotificationsReadForConversation(conversation).catch(() => {});
 }
 
 function saveSettings() {
@@ -819,6 +900,10 @@ function saveSettings() {
     auth: normalizeBaseUrl(refs.authBaseUrl.value, DEFAULT_SETTINGS.auth),
     messaging: normalizeBaseUrl(refs.messagingBaseUrl.value, DEFAULT_SETTINGS.messaging),
     groups: normalizeBaseUrl(refs.groupsBaseUrl.value, DEFAULT_SETTINGS.groups),
+    notifications: normalizeBaseUrl(
+      refs.notificationsBaseUrl.value,
+      DEFAULT_SETTINGS.notifications
+    ),
   };
   persistSettings();
   syncSettingsInputs();
@@ -843,6 +928,8 @@ async function logout() {
   state.messagesByConversation = {};
   state.usersById = {};
   state.groupMembersByGroup = {};
+  state.notifications = [];
+  state.unreadNotificationCount = 0;
   persistSession();
   persistUi();
   renderApp();

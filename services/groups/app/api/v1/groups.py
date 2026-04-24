@@ -83,7 +83,8 @@ def add_member(group_id: str, member: schemas.GroupMemberCreate, current_user_id
     publisher.publish("member.added", {
         "group_id": new_member.group_id,
         "user_id": new_member.user_id,
-        "role": new_member.role
+        "role": new_member.role,
+        "actor_user_id": current_user_id
     })
     return new_member
 

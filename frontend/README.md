@@ -29,6 +29,7 @@ Abre:
    - Auth: `http://localhost:8082`
    - Messaging: `http://localhost:8080`
    - Groups: `http://localhost:8081`
+   - Notifications: `http://localhost:8083`
 
 ## Flujo sugerido
 
