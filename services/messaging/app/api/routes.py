@@ -11,6 +11,9 @@ from app.db.session import get_db
 from app.domain.enums import ScopeType
 from app.schemas.messaging import (
     AttachmentOut,
+    DirectConversationListOut,
+    DirectConversationStartRequest,
+    DirectConversationSummaryOut,
     MessageCreateRequest,
     MessageListOut,
     MessageOut,
@@ -115,6 +118,35 @@ async def list_messages(
     )
     response_items = [MessageOut.model_validate(item) for item in items]
     return MessageListOut(items=response_items, count=len(response_items))
+
+
+@router.post(
+    "/direct-conversations",
+    response_model=DirectConversationSummaryOut,
+    status_code=status.HTTP_200_OK,
+)
+async def get_direct_conversation(
+    payload: DirectConversationStartRequest,
+    service: MessagingService = Depends(get_messaging_service),
+) -> DirectConversationSummaryOut:
+    conversation = await service.get_direct_conversation(payload)
+    return DirectConversationSummaryOut.model_validate(conversation)
+
+
+@router.get(
+    "/direct-conversations",
+    response_model=DirectConversationListOut,
+    status_code=status.HTTP_200_OK,
+)
+async def list_direct_conversations(
+    user_id: str,
+    service: MessagingService = Depends(get_messaging_service),
+) -> DirectConversationListOut:
+    items = await service.list_direct_conversations(user_id)
+    return DirectConversationListOut(
+        items=[DirectConversationSummaryOut.model_validate(item) for item in items],
+        count=len(items),
+    )
 
 
 @router.post(

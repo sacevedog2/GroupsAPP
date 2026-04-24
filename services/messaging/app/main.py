@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import router as messaging_router
 from app.core.config import Settings, get_settings
@@ -66,6 +67,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         title="GroupsApp Messaging Service",
         version="0.1.0",
         lifespan=lifespan,
+    )
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
     )
     app.include_router(messaging_router)
 

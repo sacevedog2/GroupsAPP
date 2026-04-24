@@ -10,6 +10,20 @@ from app.api.deps import get_current_user
 
 router = APIRouter()
 
+@router.get("/", response_model=List[schemas.GroupResponse])
+def list_groups(
+    current_user_id: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    groups = (
+        db.query(models.Group)
+        .join(models.GroupMember, models.GroupMember.group_id == models.Group.id)
+        .filter(models.GroupMember.user_id == current_user_id)
+        .order_by(models.Group.created_at.desc())
+        .all()
+    )
+    return groups
+
 @router.post("/", response_model=schemas.GroupResponse, status_code=status.HTTP_201_CREATED)
 def create_group(group: schemas.GroupCreate, current_user_id: str = Depends(get_current_user), db: Session = Depends(get_db)):
     db_group = models.Group(

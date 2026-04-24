@@ -53,6 +53,31 @@ class Message(Base):
     )
 
 
+class DirectConversation(Base):
+    __tablename__ = "direct_conversations"
+
+    scope_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        onupdate=utc_now,
+        nullable=False,
+        index=True,
+    )
+
+    participants: Mapped[list[DirectConversationParticipant]] = relationship(
+        "DirectConversationParticipant",
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+
+
 class Attachment(Base):
     __tablename__ = "attachments"
 
@@ -132,6 +157,27 @@ class MessageReceipt(Base):
     message: Mapped[Message] = relationship(back_populates="receipts")
 
 
+class DirectConversationParticipant(Base):
+    __tablename__ = "direct_conversation_participants"
+
+    scope_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("direct_conversations.scope_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    user_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    joined_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        nullable=False,
+    )
+
+    conversation: Mapped[DirectConversation] = relationship(
+        "DirectConversation",
+        back_populates="participants",
+    )
+
+
 Index(
     "ix_messages_scope_created_at",
     Message.scope_type,
@@ -139,3 +185,5 @@ Index(
     Message.created_at.desc(),
 )
 Index("ix_receipts_user", MessageReceipt.user_id)
+Index("ix_direct_conversation_updated_at", DirectConversation.updated_at.desc())
+Index("ix_direct_conversation_participant_user", DirectConversationParticipant.user_id)

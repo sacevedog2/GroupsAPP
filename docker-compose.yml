@@ -48,12 +48,12 @@ services:
       dockerfile: Dockerfile
     container_name: auth-service
     ports:
-      - "8082:8000"
+      - "8082:8081"
       - "50050:50051" # Puerto gRPC host en 50050
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:postgres@auth-db:5432/authdb
       - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
-      - JWT_SECRET_KEY=supersecretkey
+      - JWT_SECRET_KEY=supersecretkey-2026
       - JWT_ISSUER=groupsapp
       - SERVICE_NAME=auth-service
       - GRPC_HOST=0.0.0.0

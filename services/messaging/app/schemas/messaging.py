@@ -54,7 +54,7 @@ class MessageListOut(BaseModel):
 class MessageCreateRequest(BaseModel):
     sender_id: str = Field(min_length=1, max_length=64)
     scope_type: ScopeType
-    scope_id: str = Field(min_length=1, max_length=64)
+    scope_id: str | None = Field(default=None, min_length=1, max_length=64)
     body: str | None = Field(default=None, max_length=8000)
     attachment_ids: list[str] = Field(default_factory=list)
     participant_ids: list[str] = Field(default_factory=list)
@@ -79,7 +79,38 @@ class MessageCreateRequest(BaseModel):
                 raise ValueError(
                     "Un mensaje direct debe involucrar exactamente dos usuarios."
                 )
+        elif not self.scope_id:
+            raise ValueError("scope_id es obligatorio para mensajes que no son direct.")
         return self
+
+
+class DirectConversationStartRequest(BaseModel):
+    user_id: str = Field(min_length=1, max_length=64)
+    peer_user_id: str = Field(min_length=1, max_length=64)
+
+    @model_validator(mode="after")
+    def validate_users(self) -> DirectConversationStartRequest:
+        self.user_id = self.user_id.strip().lower()
+        self.peer_user_id = self.peer_user_id.strip().lower()
+        if self.user_id == self.peer_user_id:
+            raise ValueError("No puedes iniciar una conversacion directa contigo mismo.")
+        return self
+
+
+class DirectConversationSummaryOut(BaseModel):
+    scope_id: str
+    user_id: str
+    peer_user_id: str
+    last_message: MessageOut | None = None
+    unread_count: int = 0
+    updated_at: datetime | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class DirectConversationListOut(BaseModel):
+    items: list[DirectConversationSummaryOut]
+    count: int
 
 
 class ReceiptUpdateRequest(BaseModel):

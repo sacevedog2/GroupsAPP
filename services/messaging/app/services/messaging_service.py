@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from hashlib import sha256
 from uuid import uuid4
 
 from fastapi import HTTPException, UploadFile, status
@@ -8,10 +9,21 @@ from sqlalchemy import Select, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.models import Attachment, Message, MessageAttachment, MessageReceipt
+from app.db.models import (
+    Attachment,
+    DirectConversation,
+    DirectConversationParticipant,
+    Message,
+    MessageAttachment,
+    MessageReceipt,
+)
 from app.domain.enums import ReceiptStatus, STATUS_RANK, ScopeType
 from app.schemas.events import DomainEvent
-from app.schemas.messaging import MessageCreateRequest, ReceiptUpdateRequest
+from app.schemas.messaging import (
+    DirectConversationStartRequest,
+    MessageCreateRequest,
+    ReceiptUpdateRequest,
+)
 from app.services.event_publisher import EventPublisher
 from app.services.storage import StorageService
 
@@ -26,6 +38,63 @@ class MessagingService:
         self.session = session
         self.event_publisher = event_publisher
         self.storage = storage
+
+    @staticmethod
+    def build_direct_scope_id(user_a: str, user_b: str) -> str:
+        normalized = ":".join(sorted([user_a.strip().lower(), user_b.strip().lower()]))
+        digest = sha256(normalized.encode("utf-8")).hexdigest()
+        return f"dm_{digest[:40]}"
+
+    async def ensure_direct_conversation(
+        self, user_a: str, user_b: str
+    ) -> DirectConversation:
+        normalized_a = user_a.strip().lower()
+        normalized_b = user_b.strip().lower()
+        scope_id = self.build_direct_scope_id(normalized_a, normalized_b)
+
+        conversation = await self.session.get(DirectConversation, scope_id)
+        if conversation is not None:
+            return conversation
+
+        now = datetime.now(timezone.utc)
+        conversation = DirectConversation(
+            scope_id=scope_id,
+            created_at=now,
+            updated_at=now,
+        )
+        self.session.add(conversation)
+        self.session.add_all(
+            [
+                DirectConversationParticipant(
+                    scope_id=scope_id,
+                    user_id=normalized_a,
+                    joined_at=now,
+                ),
+                DirectConversationParticipant(
+                    scope_id=scope_id,
+                    user_id=normalized_b,
+                    joined_at=now,
+                ),
+            ]
+        )
+        await self.session.commit()
+        return await self.get_direct_conversation_record(scope_id)
+
+    async def get_direct_conversation_record(
+        self, scope_id: str
+    ) -> DirectConversation:
+        stmt = (
+            select(DirectConversation)
+            .where(DirectConversation.scope_id == scope_id)
+            .options(selectinload(DirectConversation.participants))
+        )
+        conversation = (await self.session.execute(stmt)).scalar_one_or_none()
+        if conversation is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Conversacion '{scope_id}' no existe.",
+            )
+        return conversation
 
     async def create_attachment(
         self,
@@ -89,24 +158,47 @@ class MessagingService:
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail=f"Attachments no encontrados: {missing_ids}",
                 )
-            for attachment in attachments:
-                if (
-                    attachment.scope_type != payload.scope_type
-                    or attachment.scope_id != payload.scope_id
-                ):
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=(
-                            "Attachment fuera de contexto: scope_type/scope_id "
-                            "debe coincidir con el mensaje."
-                        ),
-                    )
+
+        participants = set(payload.participant_ids)
+        participants.add(payload.sender_id)
+
+        scope_id = payload.scope_id
+        if payload.scope_type == ScopeType.DIRECT:
+            if len(participants) != 2:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Un mensaje direct debe involucrar exactamente dos usuarios.",
+                )
+            peer_user_id = next(
+                participant
+                for participant in participants
+                if participant != payload.sender_id
+            )
+            conversation = await self.ensure_direct_conversation(
+                payload.sender_id, peer_user_id
+            )
+            scope_id = conversation.scope_id
+        elif not scope_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="scope_id es obligatorio para mensajes que no son direct.",
+            )
+
+        for attachment in attachments:
+            if attachment.scope_type != payload.scope_type or attachment.scope_id != scope_id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        "Attachment fuera de contexto: scope_type/scope_id "
+                        "debe coincidir con el mensaje."
+                    ),
+                )
 
         message = Message(
             id=str(uuid4()),
             sender_id=payload.sender_id,
             scope_type=payload.scope_type,
-            scope_id=payload.scope_id,
+            scope_id=scope_id,
             body=payload.body,
         )
         self.session.add(message)
@@ -116,28 +208,26 @@ class MessagingService:
                 MessageAttachment(message_id=message.id, attachment_id=attachment.id)
             )
 
-        participants = set(payload.participant_ids)
-        participants.add(payload.sender_id)
-
         now = datetime.now(timezone.utc)
+        if payload.scope_type == ScopeType.DIRECT:
+            conversation.updated_at = now
+
         for participant in participants:
             if participant == payload.sender_id:
-                status_value = ReceiptStatus.READ
                 receipt = MessageReceipt(
                     message_id=message.id,
                     user_id=participant,
-                    status=status_value,
+                    status=ReceiptStatus.READ,
                     sent_at=now,
                     delivered_at=now,
                     read_at=now,
                     updated_at=now,
                 )
             else:
-                status_value = ReceiptStatus.SENT
                 receipt = MessageReceipt(
                     message_id=message.id,
                     user_id=participant,
-                    status=status_value,
+                    status=ReceiptStatus.SENT,
                     sent_at=now,
                     delivered_at=None,
                     read_at=None,
@@ -153,7 +243,7 @@ class MessagingService:
                 id=str(uuid4()),
                 event_type="message.created",
                 scope_type=payload.scope_type,
-                scope_id=payload.scope_id,
+                scope_id=scope_id,
                 payload={
                     "message_id": message.id,
                     "sender_id": message.sender_id,
@@ -207,6 +297,114 @@ class MessagingService:
 
         return list((await self.session.scalars(stmt)).all())
 
+    async def get_direct_conversation(
+        self, payload: DirectConversationStartRequest
+    ) -> dict[str, object]:
+        conversation = await self.ensure_direct_conversation(
+            payload.user_id, payload.peer_user_id
+        )
+        scope_id = conversation.scope_id
+        last_message = await self._get_latest_message_for_scope(
+            scope_type=ScopeType.DIRECT,
+            scope_id=scope_id,
+        )
+        unread_count = await self._count_unread_messages(
+            scope_id=scope_id,
+            user_id=payload.user_id,
+        )
+        updated_at = last_message.created_at if last_message is not None else None
+        return {
+            "scope_id": scope_id,
+            "user_id": payload.user_id,
+            "peer_user_id": payload.peer_user_id,
+            "last_message": last_message,
+            "unread_count": unread_count,
+            "updated_at": updated_at or conversation.updated_at,
+        }
+
+    async def list_direct_conversations(self, user_id: str) -> list[dict[str, object]]:
+        normalized_user_id = user_id.strip().lower()
+        stmt = (
+            select(DirectConversation)
+            .join(
+                DirectConversationParticipant,
+                DirectConversationParticipant.scope_id == DirectConversation.scope_id,
+            )
+            .where(
+                DirectConversationParticipant.user_id == normalized_user_id,
+            )
+            .options(selectinload(DirectConversation.participants))
+            .order_by(desc(DirectConversation.updated_at))
+        )
+
+        conversations_db = list((await self.session.scalars(stmt)).unique().all())
+        conversations: list[dict[str, object]] = []
+        for conversation in conversations_db:
+            peer_user_id = self._extract_peer_user_id_from_conversation(
+                conversation, normalized_user_id
+            )
+            last_message = await self._get_latest_message_for_scope(
+                scope_type=ScopeType.DIRECT,
+                scope_id=conversation.scope_id,
+            )
+            unread_count = await self._count_unread_messages(
+                scope_id=conversation.scope_id,
+                user_id=normalized_user_id,
+            )
+            conversations.append(
+                {
+                    "scope_id": conversation.scope_id,
+                    "user_id": normalized_user_id,
+                    "peer_user_id": peer_user_id,
+                    "last_message": last_message,
+                    "unread_count": unread_count,
+                    "updated_at": last_message.created_at if last_message else conversation.updated_at,
+                }
+            )
+
+        return conversations
+
+    async def _get_latest_message_for_scope(
+        self, scope_type: ScopeType, scope_id: str
+    ) -> Message | None:
+        stmt = (
+            select(Message)
+            .where(Message.scope_type == scope_type, Message.scope_id == scope_id)
+            .options(
+                selectinload(Message.attachments),
+                selectinload(Message.receipts),
+            )
+            .order_by(desc(Message.created_at))
+            .limit(1)
+        )
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
+    async def _count_unread_messages(self, scope_id: str, user_id: str) -> int:
+        stmt = (
+            select(Message)
+            .join(
+                MessageReceipt,
+                MessageReceipt.message_id == Message.id,
+            )
+            .where(
+                Message.scope_type == ScopeType.DIRECT,
+                Message.scope_id == scope_id,
+                Message.sender_id != user_id,
+                MessageReceipt.user_id == user_id,
+                MessageReceipt.status != ReceiptStatus.READ,
+            )
+        )
+        unread_messages = list((await self.session.scalars(stmt)).all())
+        return len(unread_messages)
+
+    def _extract_peer_user_id_from_conversation(
+        self, conversation: DirectConversation, user_id: str
+    ) -> str:
+        for participant in conversation.participants:
+            if participant.user_id != user_id:
+                return participant.user_id
+        return user_id
+
     async def update_receipt(
         self, message_id: str, payload: ReceiptUpdateRequest
     ) -> MessageReceipt:
@@ -231,10 +429,7 @@ class MessagingService:
 
         current_rank = STATUS_RANK[receipt.status]
         requested_rank = STATUS_RANK[payload.status]
-        if requested_rank < current_rank:
-            return receipt
-
-        if requested_rank == current_rank:
+        if requested_rank <= current_rank:
             return receipt
 
         if payload.status == ReceiptStatus.DELIVERED:

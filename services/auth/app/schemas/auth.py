@@ -21,6 +21,14 @@ class UserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class PublicUserOut(BaseModel):
+    user_id: str
+    display_name: str | None = None
+    is_online: bool
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class PresenceUpdateRequest(BaseModel):
     is_online: bool
 
@@ -37,14 +45,16 @@ class AuthResponse(BaseModel):
 
 
 class RegisterRequest(BaseModel):
-    user_id: str = Field(min_length=3, max_length=32)
+    user_id: str | None = Field(default=None, min_length=3, max_length=32)
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
     display_name: str | None = Field(default=None, max_length=80)
 
     @field_validator("user_id")
     @classmethod
-    def validate_user_id(cls, value: str) -> str:
+    def validate_user_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         normalized = value.strip().lower()
         if not USER_ID_PATTERN.fullmatch(normalized):
             raise ValueError(

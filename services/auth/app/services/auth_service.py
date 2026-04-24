@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from uuid import uuid4
@@ -37,13 +38,48 @@ class AuthService:
         self.password_hasher = password_hasher
         self.token_service = token_service
 
+    def _build_user_id_candidates(self, email: str) -> list[str]:
+        local_part = email.split("@", maxsplit=1)[0].strip().lower()
+        normalized = re.sub(r"[^a-z0-9_.-]+", "-", local_part)
+        normalized = re.sub(r"[-_.]{2,}", "-", normalized).strip("-_.")
+
+        if len(normalized) < 3:
+            normalized = f"user-{normalized}".strip("-")
+        if len(normalized) < 3:
+            normalized = "user"
+
+        base = normalized[:32]
+        candidates = [base]
+        for suffix in range(1, 1000):
+            suffix_text = str(suffix)
+            prefix = base[: 32 - len(suffix_text) - 1].rstrip("-_.") or "user"
+            candidates.append(f"{prefix}-{suffix_text}")
+        return candidates
+
+    async def _generate_available_user_id(self, email: str) -> str:
+        candidates = self._build_user_id_candidates(email)
+        stmt = select(User.user_id).where(User.user_id.in_(candidates))
+        existing_ids = set((await self.session.scalars(stmt)).all())
+
+        for candidate in candidates:
+            if candidate not in existing_ids:
+                return candidate
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="No se pudo generar un user_id disponible.",
+        )
+
     async def register(self, payload: RegisterRequest) -> AuthResult:
+        resolved_user_id = payload.user_id or await self._generate_available_user_id(
+            payload.email
+        )
         stmt = select(User).where(
-            or_(User.user_id == payload.user_id, User.email == payload.email)
+            or_(User.user_id == resolved_user_id, User.email == payload.email)
         )
         existing_users = list((await self.session.scalars(stmt)).all())
 
-        if any(user.user_id == payload.user_id for user in existing_users):
+        if any(user.user_id == resolved_user_id for user in existing_users):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="El user_id ya existe.",
@@ -55,9 +91,9 @@ class AuthService:
             )
 
         user = User(
-            user_id=payload.user_id,
+            user_id=resolved_user_id,
             email=payload.email,
-            display_name=payload.display_name,
+            display_name=payload.display_name or resolved_user_id,
             password_hash=self.password_hasher.hash_password(payload.password),
             is_active=True,
         )
@@ -167,6 +203,16 @@ class AuthService:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"User '{user_id}' no existe.",
+            )
+        return user
+
+    async def get_public_user_by_id(self, user_id: str) -> User:
+        user = await self.get_user_by_id(user_id)
+        if not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"User '{user_id}' no existe.",
+            )
         return user
 
     async def update_presence(self, user_id: str, is_online: bool) -> User:

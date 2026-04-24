@@ -9,6 +9,8 @@ from app.schemas.auth import (
     AccessTokenOut,
     AuthResponse,
     LoginRequest,
+    PublicUserOut,
+    RegisterRequest,
     TokenIntrospectionOut,
     UserOut,
     PresenceUpdateRequest,
@@ -71,6 +73,17 @@ async def me(
 ) -> UserOut:
     user, _ = await service.get_current_user(access_token)
     return UserOut.model_validate(user)
+
+
+@router.get("/users/{user_id}", response_model=PublicUserOut, status_code=status.HTTP_200_OK)
+async def get_user_by_id(
+    user_id: str,
+    access_token: str = Depends(get_bearer_token),
+    service: AuthService = Depends(get_auth_service),
+) -> PublicUserOut:
+    await service.get_current_user(access_token)
+    user = await service.get_public_user_by_id(user_id.strip().lower())
+    return PublicUserOut.model_validate(user)
 
 
 @router.post("/introspect", response_model=TokenIntrospectionOut)
