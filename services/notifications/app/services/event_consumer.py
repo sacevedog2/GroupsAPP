@@ -44,9 +44,11 @@ class EventConsumer:
             self._connection = None
 
     async def _consume(self) -> None:
+        retry_count = 0
         while True:
             try:
                 self._connection = await aio_pika.connect_robust(self.settings.rabbitmq_url)
+                retry_count = 0
                 channel = await self._connection.channel()
                 exchange = await channel.declare_exchange(
                     self.settings.rabbitmq_exchange,
@@ -64,8 +66,15 @@ class EventConsumer:
                         await self._handle_message(message)
             except asyncio.CancelledError:
                 raise
-            except Exception:
-                logger.exception("Consumer de notifications fallo; reintentando.")
+            except Exception as exc:
+                retry_count += 1
+                if retry_count <= 5:
+                    logger.warning(
+                        "RabbitMQ aun no esta listo para notifications; reintentando en 3s. Detalle: %s",
+                        exc,
+                    )
+                else:
+                    logger.exception("Consumer de notifications fallo; reintentando.")
                 await asyncio.sleep(3)
 
     async def _handle_message(self, message: IncomingMessage) -> None:

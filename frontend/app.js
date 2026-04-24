@@ -12,6 +12,7 @@ const DEFAULT_SETTINGS = {
 };
 
 const POLL_MS = 4000;
+const NOTIFICATION_WIDGET_MS = 3000;
 
 const state = {
   authMode: "login",
@@ -27,6 +28,9 @@ const state = {
   groupMembersByGroup: {},
   notifications: [],
   unreadNotificationCount: 0,
+  notificationSeenIds: {},
+  notificationToastTimers: {},
+  notificationsInitialized: false,
   pollTimer: null,
 };
 
@@ -157,9 +161,10 @@ function formatDate(value) {
   if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
-  return new Intl.DateTimeFormat("es-CO", {
+  return new Intl.DateTimeFormat(navigator.language || undefined, {
     dateStyle: "short",
     timeStyle: "short",
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
   }).format(date);
 }
 
@@ -174,6 +179,10 @@ function formatBytes(bytes) {
     unit = units[index];
   }
   return `${size.toFixed(size >= 10 ? 0 : 1)} ${unit}`;
+}
+
+function notificationIdValue(notificationId) {
+  return String(notificationId ?? "");
 }
 
 function parseCommaList(value) {
@@ -452,28 +461,87 @@ function getUnreadNotificationsForScope(scopeType, scopeId) {
   );
 }
 
+function dismissNotificationWidget() {
+  refs.notificationWidget.classList.add("hidden");
+  refs.notificationWidget.classList.remove("notification-widget-live");
+}
+
+function clearNotificationToasts() {
+  for (const timerId of Object.values(state.notificationToastTimers)) {
+    window.clearTimeout(timerId);
+  }
+  state.notificationToastTimers = {};
+  refs.notificationList.innerHTML = "";
+  dismissNotificationWidget();
+}
+
+function removeNotificationToast(notificationId) {
+  const normalizedId = notificationIdValue(notificationId);
+  const item = [...refs.notificationList.children].find(
+    (child) => child.dataset.notificationId === normalizedId
+  );
+  if (item) item.remove();
+  if (state.notificationToastTimers[normalizedId]) {
+    window.clearTimeout(state.notificationToastTimers[normalizedId]);
+    delete state.notificationToastTimers[normalizedId];
+  }
+  renderNotificationWidget();
+}
+
+function getConversationForNotification(notification) {
+  return (
+    state.conversations.find(
+      (conversation) =>
+        conversation.scope_type === notification.scope_type &&
+        conversation.scope_id === notification.scope_id
+    ) || null
+  );
+}
+
+function getNotificationContextLabel(notification) {
+  const conversation = getConversationForNotification(notification);
+  if (conversation) {
+    const label = getConversationLabel(conversation);
+    return conversation.scope_type === "group" ? `Grupo: ${label}` : `Chat: ${label}`;
+  }
+  if (notification.scope_type === "group") return "Grupo";
+  if (notification.scope_type === "direct") return "Chat directo";
+  return "Conversacion";
+}
+
+function enqueueNotificationToast(notification) {
+  const normalizedId = notificationIdValue(notification.id);
+  if (state.notificationToastTimers[normalizedId]) return;
+
+  const item = document.createElement("article");
+  item.className = "notification-item";
+  item.dataset.notificationId = normalizedId;
+  item.innerHTML = `
+    <strong>${escapeHtml(notification.title)}</strong>
+    <small>${escapeHtml(getNotificationContextLabel(notification))}</small>
+    <p>${escapeHtml(notification.body)}</p>
+    <time>${escapeHtml(formatDate(notification.created_at))}</time>
+  `;
+
+  refs.notificationList.prepend(item);
+  state.notificationToastTimers[normalizedId] = window.setTimeout(() => {
+    removeNotificationToast(normalizedId);
+  }, NOTIFICATION_WIDGET_MS);
+
+  refs.notificationWidget.classList.remove("hidden");
+  refs.notificationWidget.classList.remove("notification-widget-live");
+  void refs.notificationWidget.offsetWidth;
+  refs.notificationWidget.classList.add("notification-widget-live");
+  renderNotificationWidget();
+}
+
 function renderNotificationWidget() {
   refs.notificationCount.textContent = String(state.unreadNotificationCount);
-  refs.notificationWidget.classList.toggle(
-    "hidden",
-    !isAuthenticated() || state.unreadNotificationCount === 0
-  );
-
-  const unread = state.notifications
-    .filter((notification) => !notification.is_read)
-    .slice(0, 5);
-
-  refs.notificationList.innerHTML = unread
-    .map(
-      (notification) => `
-        <article class="notification-item">
-          <strong>${escapeHtml(notification.title)}</strong>
-          <p>${escapeHtml(notification.body)}</p>
-          <time>${escapeHtml(formatDate(notification.created_at))}</time>
-        </article>
-      `
-    )
-    .join("");
+  const shouldShow = isAuthenticated() && refs.notificationList.childElementCount > 0;
+  refs.notificationWidget.classList.toggle("hidden", !shouldShow);
+  if (!shouldShow) {
+    refs.notificationWidget.classList.remove("notification-widget-live");
+  }
 }
 
 function renderMessages() {
@@ -727,6 +795,22 @@ async function fetchNotifications() {
   );
   state.notifications = Array.isArray(data.items) ? data.items : [];
   state.unreadNotificationCount = data.unread_count || 0;
+  const unreadNotifications = state.notifications.filter((item) => !item.is_read);
+
+  if (!state.notificationsInitialized) {
+    for (const notification of unreadNotifications) {
+      state.notificationSeenIds[notificationIdValue(notification.id)] = true;
+    }
+    state.notificationsInitialized = true;
+  } else {
+    for (const notification of unreadNotifications) {
+      const notificationId = notificationIdValue(notification.id);
+      if (!state.notificationSeenIds[notificationId]) {
+        state.notificationSeenIds[notificationId] = true;
+        enqueueNotificationToast(notification);
+      }
+    }
+  }
 }
 
 async function fetchGroupMembers(groupId) {
@@ -1055,6 +1139,9 @@ async function logout() {
   state.groupMembersByGroup = {};
   state.notifications = [];
   state.unreadNotificationCount = 0;
+  state.notificationSeenIds = {};
+  clearNotificationToasts();
+  state.notificationsInitialized = false;
   persistSession();
   persistUi();
   renderApp();
@@ -1203,6 +1290,10 @@ async function restoreSessionIfPossible() {
 
 async function bootstrap() {
   cacheRefs();
+  refs.notificationWidget.style.setProperty(
+    "--notification-widget-duration",
+    `${NOTIFICATION_WIDGET_MS}ms`
+  );
   loadPersistedState();
   syncSettingsInputs();
   setOutput("Aun no hay respuestas.");

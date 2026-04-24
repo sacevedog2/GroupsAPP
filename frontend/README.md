@@ -16,6 +16,12 @@ Frontend minimalista en tema oscuro para mensajeria directa y grupal:
 Desde la raiz del repo:
 
 ```powershell
+docker compose up --build
+```
+
+O solo el frontend:
+
+```powershell
 cd frontend
 python -m http.server 3000
 ```

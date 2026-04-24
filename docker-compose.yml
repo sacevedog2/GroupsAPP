@@ -1,5 +1,3 @@
-version: '3.9'
-
 services:
   # --- Infraestructura compartida ---
   rabbitmq:
@@ -8,6 +6,11 @@ services:
     ports:
       - "5672:5672"
       - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
     networks:
       - groupsapp-network
 
@@ -19,6 +22,11 @@ services:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
       - POSTGRES_DB=groupsdb
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d groupsdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
     ports:
       - "5432:5432"
     volumes:
@@ -34,6 +42,11 @@ services:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
       - POSTGRES_DB=authdb
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d authdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
     ports:
       - "5433:5432"
     volumes:
@@ -59,8 +72,15 @@ services:
       - GRPC_HOST=0.0.0.0
       - GRPC_PORT=50051
     depends_on:
-      - auth-db
-      - rabbitmq
+      auth-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/readyz', timeout=3)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
     networks:
       - groupsapp-network
 
@@ -78,9 +98,17 @@ services:
       - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
       - AUTH_GRPC_URL=auth-service:50051
     depends_on:
-      - groups-db
-      - rabbitmq
-      - auth-service
+      groups-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/readyz', timeout=3)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
     networks:
       - groupsapp-network
 
@@ -101,7 +129,13 @@ services:
     volumes:
       - ./services/messaging/data:/app/data
     depends_on:
-      - rabbitmq
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/readyz', timeout=3)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
     networks:
       - groupsapp-network
 
@@ -120,10 +154,39 @@ services:
     volumes:
       - ./services/notifications/data:/app/data
     depends_on:
-      - rabbitmq
-      - auth-service
-      - messaging-service
-      - groups-service
+      rabbitmq:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+      messaging-service:
+        condition: service_healthy
+      groups-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8083/readyz', timeout=3)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks:
+      - groupsapp-network
+
+  # --- Frontend web ---
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: groupsapp-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      auth-service:
+        condition: service_healthy
+      messaging-service:
+        condition: service_healthy
+      groups-service:
+        condition: service_healthy
+      notifications-service:
+        condition: service_healthy
     networks:
       - groupsapp-network
 

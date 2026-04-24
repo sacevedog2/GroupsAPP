@@ -66,6 +66,10 @@ class EventPublisher:
             timestamp=event.created_at,
         )
         try:
-            await self._exchange.publish(mq_message, routing_key=routing_key)
+            await self._exchange.publish(
+                mq_message,
+                routing_key=routing_key,
+                mandatory=False,
+            )
         except Exception:
             logger.exception("Fallo al publicar evento en RabbitMQ: %s", routing_key)
