@@ -71,6 +71,8 @@ function cacheRefs() {
     "messages",
     "composerForm",
     "messageInput",
+    "messageFiles",
+    "selectedFiles",
     "startConversationForm",
     "createGroupForm",
     "groupName",
@@ -161,6 +163,19 @@ function formatDate(value) {
   }).format(date);
 }
 
+function formatBytes(bytes) {
+  const value = Number(bytes) || 0;
+  if (value < 1024) return `${value} B`;
+  const units = ["KB", "MB", "GB"];
+  let size = value / 1024;
+  let unit = units[0];
+  for (let index = 1; index < units.length && size >= 1024; index += 1) {
+    size /= 1024;
+    unit = units[index];
+  }
+  return `${size.toFixed(size >= 10 ? 0 : 1)} ${unit}`;
+}
+
 function parseCommaList(value) {
   const unique = [];
   for (const piece of value.split(",")) {
@@ -170,6 +185,74 @@ function parseCommaList(value) {
     }
   }
   return unique;
+}
+
+function getSelectedFiles() {
+  return Array.from(refs.messageFiles?.files || []);
+}
+
+function attachmentContentUrl(attachmentId) {
+  return `${state.settings.messaging}/v1/attachments/${encodeURIComponent(
+    attachmentId
+  )}/content`;
+}
+
+function isImageAttachment(attachment) {
+  const contentType = String(attachment.content_type || "").toLowerCase();
+  if (contentType.startsWith("image/")) return true;
+
+  const filename = String(attachment.original_filename || "").toLowerCase();
+  return /\.(apng|avif|gif|jpe?g|png|svg|webp)$/.test(filename);
+}
+
+function renderAttachment(attachment) {
+  const url = attachmentContentUrl(attachment.id);
+  const filename = attachment.original_filename;
+  if (isImageAttachment(attachment)) {
+    return `
+      <a class="image-attachment" href="${escapeHtml(url)}" target="_blank" rel="noopener">
+        <img src="${escapeHtml(url)}" alt="${escapeHtml(filename)}" loading="lazy" />
+      </a>
+    `;
+  }
+
+  return `
+    <a class="attachment-link" href="${escapeHtml(url)}" download="${escapeHtml(
+      filename
+    )}" target="_blank" rel="noopener">
+      <span>${escapeHtml(filename)}</span>
+      <small>${escapeHtml(formatBytes(attachment.size_bytes))}</small>
+    </a>
+  `;
+}
+
+function getAttachmentPreviewLabel(message) {
+  const attachments = Array.isArray(message?.attachments) ? message.attachments : [];
+  if (!attachments.length) return "";
+  return attachments.some((attachment) => isImageAttachment(attachment))
+    ? "Imagen"
+    : "Archivo adjunto";
+}
+
+function renderSelectedFiles() {
+  const files = getSelectedFiles();
+  if (!files.length) {
+    refs.selectedFiles.innerHTML = "";
+    refs.selectedFiles.classList.add("hidden");
+    return;
+  }
+
+  refs.selectedFiles.classList.remove("hidden");
+  refs.selectedFiles.innerHTML = files
+    .map(
+      (file) => `
+        <span class="selected-file" title="${escapeHtml(file.name)}">
+          ${escapeHtml(file.name)}
+          <small>${escapeHtml(formatBytes(file.size))}</small>
+        </span>
+      `
+    )
+    .join("");
 }
 
 function showToast(message, tone = "info") {
@@ -415,6 +498,17 @@ function renderMessages() {
         conversation.scope_type === "direct" && mine
           ? `Estado: ${getPeerReceiptStatus(message) || "sent"}`
           : "";
+      const attachments = Array.isArray(message.attachments) ? message.attachments : [];
+      const attachmentsHtml = attachments.length
+        ? `
+          <div class="message-attachments">
+            ${attachments.map((attachment) => renderAttachment(attachment)).join("")}
+          </div>
+        `
+        : "";
+      const bodyHtml = message.body
+        ? `<div class="message-body">${escapeHtml(message.body)}</div>`
+        : "";
 
       return `
         <article class="message ${mine ? "outgoing" : "incoming"}">
@@ -426,7 +520,8 @@ function renderMessages() {
             )}</strong>
             <time>${escapeHtml(formatDate(message.created_at))}</time>
           </div>
-          <div class="message-body">${escapeHtml(message.body || "")}</div>
+          ${bodyHtml}
+          ${attachmentsHtml}
           <div class="message-foot">
             <span>${escapeHtml(status)}</span>
           </div>
@@ -503,6 +598,19 @@ async function request(url, options = {}) {
   }
 
   return body;
+}
+
+async function uploadAttachment(file, conversation) {
+  const formData = new FormData();
+  formData.append("uploader_id", state.user.user_id);
+  formData.append("scope_type", conversation.scope_type);
+  formData.append("scope_id", conversation.scope_id);
+  formData.append("file", file);
+
+  return request(`${state.settings.messaging}/v1/attachments`, {
+    method: "POST",
+    body: formData,
+  });
 }
 
 async function loadProfile() {
@@ -599,7 +707,10 @@ async function fetchDirectInbox() {
     peer_user_id: conversation.peer_user_id,
     title: state.usersById[conversation.peer_user_id]?.display_name || conversation.peer_user_id,
     subtitle: `@${conversation.peer_user_id}`,
-    preview: conversation.last_message?.body || "Todavia no hay mensajes.",
+    preview:
+      conversation.last_message?.body ||
+      getAttachmentPreviewLabel(conversation.last_message) ||
+      "Todavia no hay mensajes.",
     last_message: conversation.last_message || null,
     unread_count: conversation.unread_count || 0,
     updated_at: conversation.updated_at,
@@ -628,7 +739,12 @@ function getGroupPreview(group) {
   const key = conversationKey("group", group.id);
   const cachedMessages = state.messagesByConversation[key] || [];
   const lastMessage = cachedMessages[cachedMessages.length - 1];
-  return lastMessage?.body || group.description || "Grupo listo para conversar.";
+  return (
+    lastMessage?.body ||
+    getAttachmentPreviewLabel(lastMessage) ||
+    group.description ||
+    "Grupo listo para conversar."
+  );
 }
 
 function getGroupUpdatedAt(group) {
@@ -852,8 +968,9 @@ async function sendMessage() {
   }
 
   const body = refs.messageInput.value.trim();
-  if (!body) {
-    throw new Error("Escribe un mensaje antes de enviarlo.");
+  const files = getSelectedFiles();
+  if (!body && !files.length) {
+    throw new Error("Escribe un mensaje o adjunta al menos un archivo.");
   }
 
   let participantIds = [];
@@ -868,18 +985,26 @@ async function sendMessage() {
       .filter((userId) => userId !== state.user.user_id);
   }
 
+  const uploadedAttachments = [];
+  for (const file of files) {
+    uploadedAttachments.push(await uploadAttachment(file, conversation));
+  }
+
   await request(`${state.settings.messaging}/v1/messages`, {
     method: "POST",
     body: JSON.stringify({
       sender_id: state.user.user_id,
       scope_type: conversation.scope_type,
       scope_id: conversation.scope_id,
-      body,
+      body: body || null,
+      attachment_ids: uploadedAttachments.map((attachment) => attachment.id),
       participant_ids: participantIds,
     }),
   });
 
   refs.messageInput.value = "";
+  refs.messageFiles.value = "";
+  renderSelectedFiles();
   await fetchMessages(conversation.key, { markRead: false });
   await refreshWorkspace({ refreshSelectedMessages: false });
 }
@@ -1030,6 +1155,8 @@ function bindEvents() {
       }
     });
   });
+
+  refs.messageFiles.addEventListener("change", () => renderSelectedFiles());
 
   refs.btnRefreshInbox.addEventListener("click", async () => {
     await runWithBusyState(refs.btnRefreshInbox, "Actualizando...", async () => {

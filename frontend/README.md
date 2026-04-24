@@ -7,6 +7,8 @@ Frontend minimalista en tema oscuro para mensajeria directa y grupal:
 - inbox combinado con conversaciones directas y grupos
 - inicio de conversaciones escribiendo solo el `user_id` de la otra persona
 - creacion de grupos con miembros desde el frontend
+- envio de archivos adjuntos en mensajes directos y grupales
+- previsualizacion inline de imagenes y descarga de documentos
 - ajustes tecnicos escondidos en un panel aparte
 
 ## Ejecutar
@@ -38,4 +40,4 @@ Abre:
 3. Iniciar sesion.
 4. Escribir el `user_id` de otra persona en `Nuevo chat`.
 5. O crear un grupo indicando nombre, descripcion y miembros.
-6. Enviar mensajes y revisar la bandeja de entrada.
+6. Enviar mensajes, imagenes o documentos y revisar la bandeja de entrada.

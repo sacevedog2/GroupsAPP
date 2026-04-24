@@ -43,6 +43,10 @@ textarea {
   resize: vertical;
 }
 
+input[type="file"] {
+  display: none;
+}
+
 .hidden {
   display: none !important;
 }
@@ -466,12 +470,84 @@ textarea:focus {
   line-height: 1.6;
 }
 
+.message-attachments {
+  display: grid;
+  gap: 8px;
+}
+
+.attachment-link,
+.selected-file {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.attachment-link {
+  color: var(--text);
+  text-decoration: none;
+}
+
+.attachment-link:hover {
+  border-color: rgba(124, 156, 255, 0.36);
+  background: rgba(124, 156, 255, 0.12);
+}
+
+.image-attachment {
+  display: block;
+  overflow: hidden;
+  max-width: min(420px, 100%);
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.image-attachment img {
+  display: block;
+  width: 100%;
+  max-height: 420px;
+  object-fit: contain;
+}
+
+.attachment-link span,
+.selected-file {
+  overflow-wrap: anywhere;
+}
+
+.attachment-link small,
+.selected-file small {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
 .composer {
   display: grid;
   gap: 12px;
   margin-top: 16px;
   padding-top: 18px;
   border-top: 1px solid var(--line);
+}
+
+.attachment-picker {
+  display: grid;
+  gap: 10px;
+}
+
+.btn-file {
+  justify-self: start;
+}
+
+.selected-files {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.selected-file {
+  max-width: min(260px, 100%);
+  color: var(--text);
 }
 
 .settings-drawer {

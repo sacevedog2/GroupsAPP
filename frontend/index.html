@@ -172,10 +172,15 @@
                 <textarea
                   id="messageInput"
                   rows="3"
-                  placeholder="Escribe un mensaje. Usa Ctrl + Enter para enviar."
+                  placeholder="Escribe un mensaje o adjunta archivos."
                 ></textarea>
+                <div class="attachment-picker">
+                  <label for="messageFiles" class="btn btn-ghost btn-file">Adjuntar archivos</label>
+                  <input id="messageFiles" type="file" multiple />
+                  <div id="selectedFiles" class="selected-files"></div>
+                </div>
                 <div class="composer-footer">
-                  <span class="composer-note">Solo necesitas escribir y enviar.</span>
+                  <span class="composer-note">Puedes enviar texto, archivos o ambos.</span>
                   <button id="btnSendMessage" type="submit" class="btn btn-primary">Enviar</button>
                 </div>
               </form>
