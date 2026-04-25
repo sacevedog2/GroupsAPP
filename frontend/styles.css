@@ -302,7 +302,7 @@ textarea:focus {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 16px;
-  align-items: center;
+  align-items: start;
 }
 
 .topbar-actions {
@@ -316,9 +316,8 @@ textarea:focus {
 .welcome-user {
   max-width: min(640px, 72vw);
   margin: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
   color: var(--text);
   font-weight: 800;
   font-size: clamp(1.55rem, 3vw, 2.65rem);
@@ -345,6 +344,7 @@ textarea:focus {
 .sidebar {
   align-content: start;
   overflow-y: auto;
+  padding-bottom: 10px;
   padding-right: 2px;
 }
 
@@ -412,7 +412,7 @@ textarea:focus {
   border: 0;
   border-radius: 20px;
   background: transparent;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .action-disclosure summary {
@@ -434,6 +434,11 @@ textarea:focus {
     transform 160ms ease,
     border-color 160ms ease,
     background 160ms ease;
+}
+
+.action-disclosure summary span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .action-disclosure summary::-webkit-details-marker {
