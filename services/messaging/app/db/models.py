@@ -14,7 +14,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
-from app.domain.enums import ReceiptStatus, ScopeType
+from app.domain.enums import DirectRequestStatus, ReceiptStatus, ScopeType
 
 
 def utc_now() -> datetime:
@@ -75,6 +75,14 @@ class DirectConversation(Base):
         back_populates="conversation",
         cascade="all, delete-orphan",
         lazy="selectin",
+    )
+
+    request: Mapped[DirectConversationRequest | None] = relationship(
+        "DirectConversationRequest",
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        uselist=False,
     )
 
 
@@ -178,6 +186,41 @@ class DirectConversationParticipant(Base):
     )
 
 
+class DirectConversationRequest(Base):
+    __tablename__ = "direct_conversation_requests"
+
+    scope_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("direct_conversations.scope_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    requester_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    recipient_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    status: Mapped[DirectRequestStatus] = mapped_column(
+        SAEnum(DirectRequestStatus, native_enum=False, validate_strings=True),
+        nullable=False,
+        default=DirectRequestStatus.PENDING,
+        index=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        onupdate=utc_now,
+        nullable=False,
+    )
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    conversation: Mapped[DirectConversation] = relationship(
+        "DirectConversation",
+        back_populates="request",
+    )
+
+
 Index(
     "ix_messages_scope_created_at",
     Message.scope_type,
@@ -187,3 +230,8 @@ Index(
 Index("ix_receipts_user", MessageReceipt.user_id)
 Index("ix_direct_conversation_updated_at", DirectConversation.updated_at.desc())
 Index("ix_direct_conversation_participant_user", DirectConversationParticipant.user_id)
+Index(
+    "ix_direct_request_recipient_status",
+    DirectConversationRequest.recipient_id,
+    DirectConversationRequest.status,
+)

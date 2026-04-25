@@ -11,6 +11,7 @@ from app.db.session import get_db
 from app.domain.enums import ScopeType
 from app.schemas.messaging import (
     AttachmentOut,
+    DirectConversationAcceptRequest,
     DirectConversationListOut,
     DirectConversationStartRequest,
     DirectConversationSummaryOut,
@@ -130,6 +131,23 @@ async def get_direct_conversation(
     service: MessagingService = Depends(get_messaging_service),
 ) -> DirectConversationSummaryOut:
     conversation = await service.get_direct_conversation(payload)
+    return DirectConversationSummaryOut.model_validate(conversation)
+
+
+@router.post(
+    "/direct-conversations/{scope_id}/accept",
+    response_model=DirectConversationSummaryOut,
+    status_code=status.HTTP_200_OK,
+)
+async def accept_direct_conversation(
+    scope_id: str,
+    payload: DirectConversationAcceptRequest,
+    service: MessagingService = Depends(get_messaging_service),
+) -> DirectConversationSummaryOut:
+    conversation = await service.accept_direct_conversation(
+        scope_id=scope_id,
+        user_id=payload.user_id,
+    )
     return DirectConversationSummaryOut.model_validate(conversation)
 
 

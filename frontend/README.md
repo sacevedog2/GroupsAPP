@@ -1,19 +1,19 @@
 # Frontend - GroupsApp
 
-Frontend minimalista en tema oscuro para mensajeria directa y grupal:
+Frontend minimalista en tema oscuro para mensajería directa y grupal:
 
-- registro solo con correo y contrasena
-- `user_id` generado automaticamente por backend
+- registro solo con correo y contraseña
+- `user_id` generado automáticamente por backend
 - inbox combinado con conversaciones directas y grupos
 - inicio de conversaciones escribiendo solo el `user_id` de la otra persona
-- creacion de grupos con miembros desde el frontend
-- envio de archivos adjuntos en mensajes directos y grupales
-- previsualizacion inline de imagenes y descarga de documentos
-- ajustes tecnicos escondidos en un panel aparte
+- creación de grupos con miembros desde el frontend
+- envío de archivos adjuntos en mensajes directos y grupales
+- previsualización inline de imágenes y descarga de documentos
+- ajustes técnicos escondidos en un panel aparte
 
 ## Ejecutar
 
-Desde la raiz del repo:
+Desde la raíz del repo:
 
 ```powershell
 docker compose up --build
@@ -41,9 +41,9 @@ Abre:
 
 ## Flujo sugerido
 
-1. Crear cuenta solo con correo y contrasena.
-2. Guardar tu `@user_id` generado automaticamente.
-3. Iniciar sesion.
+1. Crear cuenta solo con correo y contraseña.
+2. Guardar tu `@user_id` generado automáticamente.
+3. Iniciar sesión.
 4. Escribir el `user_id` de otra persona en `Nuevo chat`.
-5. O crear un grupo indicando nombre, descripcion y miembros.
-6. Enviar mensajes, imagenes o documentos y revisar la bandeja de entrada.
+5. O crear un grupo indicando nombre, descripción y miembros.
+6. Enviar mensajes, imágenes o documentos y revisar la bandeja de entrada.

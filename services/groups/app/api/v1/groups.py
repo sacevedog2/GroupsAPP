@@ -26,6 +26,18 @@ def list_groups(
 
 @router.post("/", response_model=schemas.GroupResponse, status_code=status.HTTP_201_CREATED)
 def create_group(group: schemas.GroupCreate, current_user_id: str = Depends(get_current_user), db: Session = Depends(get_db)):
+    member_ids = []
+    for user_id in group.member_ids:
+        normalized_user_id = user_id.strip().lower()
+        if normalized_user_id and normalized_user_id != current_user_id and normalized_user_id not in member_ids:
+            member_ids.append(normalized_user_id)
+
+    if len(member_ids) < 2:
+        raise HTTPException(
+            status_code=400,
+            detail="Para crear un grupo debes agregar al menos otros 2 usuarios.",
+        )
+
     db_group = models.Group(
         name=group.name,
         description=group.description,
@@ -41,14 +53,30 @@ def create_group(group: schemas.GroupCreate, current_user_id: str = Depends(get_
         role=models.RoleEnum.ADMIN.value
     )
     db.add(db_member)
+    for user_id in member_ids:
+        db.add(
+            models.GroupMember(
+                group_id=db_group.id,
+                user_id=user_id,
+                role=models.RoleEnum.MEMBER.value,
+            )
+        )
     db.commit()
     db.refresh(db_group)
     
     publisher.publish("group.created", {
         "group_id": db_group.id,
         "name": db_group.name,
-        "creator_id": current_user_id
+        "creator_id": current_user_id,
+        "member_ids": member_ids
     })
+    for user_id in member_ids:
+        publisher.publish("member.added", {
+            "group_id": db_group.id,
+            "user_id": user_id,
+            "role": models.RoleEnum.MEMBER.value,
+            "actor_user_id": current_user_id
+        })
     return db_group
 
 @router.get("/{group_id}", response_model=schemas.GroupDetailResponse)

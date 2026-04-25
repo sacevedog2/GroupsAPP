@@ -13,6 +13,11 @@ class ReceiptStatus(str, enum.Enum):
     READ = "read"
 
 
+class DirectRequestStatus(str, enum.Enum):
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+
+
 STATUS_RANK = {
     ReceiptStatus.SENT: 1,
     ReceiptStatus.DELIVERED: 2,

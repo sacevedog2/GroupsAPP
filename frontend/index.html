@@ -4,6 +4,12 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>GroupsApp</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
@@ -11,17 +17,15 @@
       <section id="authView" class="auth-view">
         <div class="auth-hero">
           <p class="kicker">GroupsApp</p>
-          <h1>Mensajeria directa, simple y lista para usar.</h1>
+          <h1>Mensajería directa, simple y lista para usar.</h1>
           <p class="auth-copy">
-            Registra una cuenta solo con correo y contrasena. Tu nombre de usuario se
-            genera automaticamente y despues podras iniciar conversaciones escribiendo
-            solo el user ID de la otra persona.
+            Registra una cuenta solo con correo y contraseña. Comparte tu usuario para que otros puedan encontrarte y escribirte. Crea grupos, envía mensajes, archivos y mantente conectado con tu equipo.
           </p>
         </div>
 
         <div class="auth-panel">
           <div class="auth-tabs">
-            <button id="btnTabLogin" type="button" class="auth-tab active">Iniciar sesion</button>
+            <button id="btnTabLogin" type="button" class="auth-tab active">Iniciar sesión</button>
             <button id="btnTabRegister" type="button" class="auth-tab">Crear cuenta</button>
           </div>
 
@@ -31,12 +35,12 @@
               <input id="loginEmail" type="email" autocomplete="username" placeholder="tu@correo.com" />
             </label>
             <label>
-              Contrasena
+              Contraseña
               <input
                 id="loginPassword"
                 type="password"
                 autocomplete="current-password"
-                placeholder="Ingresa tu contrasena"
+                placeholder="Ingresa tu contraseña"
               />
             </label>
             <button id="btnLogin" type="submit" class="btn btn-primary btn-block">Entrar</button>
@@ -48,12 +52,12 @@
               <input id="registerEmail" type="email" autocomplete="email" placeholder="tu@correo.com" />
             </label>
             <label>
-              Contrasena
+              Contraseña
               <input
                 id="registerPassword"
                 type="password"
                 autocomplete="new-password"
-                placeholder="Minimo 8 caracteres con letras y numeros"
+                placeholder="Mínimo 8 caracteres con letras y números"
               />
             </label>
             <button id="btnRegister" type="submit" class="btn btn-primary btn-block">
@@ -62,7 +66,7 @@
           </form>
 
           <p class="auth-note">
-            Al registrarte te mostraremos tu `user_id` para que otros puedan encontrarte.
+            Al registrarte te mostraremos tu usuario para que otros puedan encontrarte.
           </p>
         </div>
       </section>
@@ -71,14 +75,7 @@
         <header class="topbar">
           <div>
             <p class="kicker">GroupsApp</p>
-            <h2>Inbox</h2>
-          </div>
-
-          <div class="profile-pill">
-            <div>
-              <strong id="profileName">Usuario</strong>
-              <span id="profileUserId">@usuario</span>
-            </div>
+            <h2 id="identityHeadline" class="welcome-user">Bienvenido @usuario</h2>
           </div>
 
           <div class="topbar-actions">
@@ -98,50 +95,6 @@
 
         <main class="workspace-grid">
           <aside class="sidebar">
-            <section class="panel">
-              <p class="panel-label">Tu usuario</p>
-              <h3 id="identityHeadline">@usuario</h3>
-              <p class="panel-copy">
-                Comparte este user ID para que otros puedan escribirte.
-              </p>
-            </section>
-
-            <section class="panel">
-              <p class="panel-label">Nuevo chat</p>
-              <h3>Iniciar conversacion</h3>
-              <form id="startConversationForm" class="stack">
-                <label>
-                  User ID de destino
-                  <input id="recipientUserId" placeholder="ej: maria.dev" />
-                </label>
-                <button id="btnStartConversation" type="submit" class="btn btn-primary btn-block">
-                  Abrir chat
-                </button>
-              </form>
-            </section>
-
-            <section class="panel">
-              <p class="panel-label">Nuevo grupo</p>
-              <h3>Crear conversacion grupal</h3>
-              <form id="createGroupForm" class="stack">
-                <label>
-                  Nombre del grupo
-                  <input id="groupName" placeholder="ej: equipo-producto" />
-                </label>
-                <label>
-                  Descripcion
-                  <input id="groupDescription" placeholder="Tema o proposito del grupo" />
-                </label>
-                <label>
-                  Miembros
-                  <input id="groupMembersInput" placeholder="maria.dev, juan123" />
-                </label>
-                <button id="btnCreateGroup" type="submit" class="btn btn-primary btn-block">
-                  Crear grupo
-                </button>
-              </form>
-            </section>
-
             <section class="panel inbox-panel">
               <div class="panel-head">
                 <div>
@@ -152,18 +105,79 @@
               </div>
               <ul id="conversationList" class="conversation-list"></ul>
             </section>
+
+            <section class="panel action-panel">
+              <p class="panel-label">Acciones</p>
+
+              <details class="action-disclosure">
+                <summary>
+                  <span>Iniciar conversación</span>
+                </summary>
+                <form id="startConversationForm" class="stack">
+                  <label>
+                    User ID de destino
+                    <input id="recipientUserId" placeholder="ej: maria.dev" />
+                  </label>
+                  <button id="btnStartConversation" type="submit" class="btn btn-primary btn-block">
+                    Abrir chat
+                  </button>
+                </form>
+              </details>
+
+              <details class="action-disclosure">
+                <summary>
+                  <span>Crear conversación grupal</span>
+                </summary>
+                <form id="createGroupForm" class="stack">
+                  <label>
+                    Nombre del grupo
+                    <input id="groupName" placeholder="ej: equipo-producto" />
+                  </label>
+                  <label>
+                    Descripción
+                    <input id="groupDescription" placeholder="Tema o propósito del grupo" />
+                  </label>
+                  <label>
+                    Miembros
+                    <input id="groupMembersInput" placeholder="maria.dev, juan123" />
+                  </label>
+                  <button id="btnCreateGroup" type="submit" class="btn btn-primary btn-block">
+                    Crear grupo
+                  </button>
+                </form>
+              </details>
+            </section>
+
           </aside>
 
           <section class="chat-column">
-            <section class="chat-header panel">
+            <section class="chat-header">
               <div>
-                <p class="panel-label">Conversacion</p>
-                <h3 id="chatTitle">Selecciona una conversacion</h3>
+                <p class="panel-label">Conversación</p>
+                <h3 id="chatTitle">Selecciona una conversación</h3>
                 <p id="chatSubtitle" class="panel-copy">
-                  Cuando abras un chat, los mensajes apareceran aqui.
+                  Cuando abras un chat, los mensajes aparecerán aquí.
                 </p>
               </div>
               <span id="chatPresence" class="subtle-pill hidden">offline</span>
+              <button id="btnGroupDetails" type="button" class="btn btn-ghost hidden">
+                Detalles
+              </button>
+              <button id="btnAcceptDirect" type="button" class="btn btn-primary hidden">
+                Aceptar chat
+              </button>
+            </section>
+
+            <section id="groupDetailsPanel" class="group-details-panel panel hidden">
+              <div class="panel-head">
+                <div>
+                  <p class="panel-label">Detalles del grupo</p>
+                  <h3>Información</h3>
+                </div>
+                <span id="groupDetailsCount" class="subtle-pill">0 miembros</span>
+              </div>
+              <p id="groupDetailsDescription" class="panel-copy"></p>
+              <div id="groupDetailsMembers" class="member-list"></div>
             </section>
 
             <section class="chat-panel panel">
@@ -193,7 +207,7 @@
         <div class="drawer-head">
           <div>
             <p class="panel-label">Ajustes</p>
-            <h3>Servicios y diagnostico</h3>
+            <h3>Servicios y diagnóstico</h3>
           </div>
           <button id="btnCloseSettings" type="button" class="btn btn-ghost">Cerrar</button>
         </div>
@@ -224,8 +238,8 @@
           <section class="panel">
             <div class="panel-head">
               <div>
-                <p class="panel-label">Diagnostico</p>
-                <h3>Ultima respuesta API</h3>
+                <p class="panel-label">Diagnóstico</p>
+                <h3>Última respuesta API</h3>
               </div>
               <button id="btnClearOutput" type="button" class="btn btn-ghost">Limpiar</button>
             </div>

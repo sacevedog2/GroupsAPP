@@ -39,7 +39,7 @@ class GroupBase(BaseModel):
     settings: Optional[Dict[str, Any]] = Field(default_factory=dict)
 
 class GroupCreate(GroupBase):
-    pass
+    member_ids: List[str] = Field(default_factory=list)
 
 class GroupResponse(GroupBase):
     id: str

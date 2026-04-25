@@ -31,6 +31,7 @@ const state = {
   notificationSeenIds: {},
   notificationToastTimers: {},
   notificationsInitialized: false,
+  groupDetailsOpen: false,
   pollTimer: null,
 };
 
@@ -63,8 +64,8 @@ function cacheRefs() {
     "btnStartConversation",
     "btnCreateGroup",
     "btnSendMessage",
-    "profileName",
-    "profileUserId",
+    "btnAcceptDirect",
+    "btnGroupDetails",
     "identityHeadline",
     "recipientUserId",
     "conversationList",
@@ -72,6 +73,10 @@ function cacheRefs() {
     "chatTitle",
     "chatSubtitle",
     "chatPresence",
+    "groupDetailsPanel",
+    "groupDetailsDescription",
+    "groupDetailsMembers",
+    "groupDetailsCount",
     "messages",
     "composerForm",
     "messageInput",
@@ -323,9 +328,7 @@ function getSelectedConversation() {
 function updateProfileHeader() {
   const user = state.user;
   if (!user) return;
-  refs.profileName.textContent = user.display_name || user.user_id;
-  refs.profileUserId.textContent = `@${user.user_id}`;
-  refs.identityHeadline.textContent = `@${user.user_id}`;
+  refs.identityHeadline.textContent = `Bienvenido @${user.user_id}`;
 }
 
 function rebuildConversations() {
@@ -354,7 +357,7 @@ function renderConversationList() {
 
   if (!state.conversations.length) {
     refs.conversationList.innerHTML =
-      '<li class="conversation-empty">Tu bandeja esta vacia. Puedes abrir un chat directo o crear un grupo.</li>';
+      '<li class="conversation-empty">Tu bandeja está vacía. Puedes abrir un chat directo o crear un grupo.</li>';
     return;
   }
 
@@ -366,20 +369,31 @@ function renderConversationList() {
         conversation.scope_type === "direct"
           ? `@${conversation.peer_user_id}`
           : conversation.subtitle || "Grupo";
-      const preview = conversation.preview || "Todavia no hay mensajes.";
+      const preview = conversation.preview || "Todavía no hay mensajes.";
+      const pending = conversation.request_status === "pending";
+      const pendingLabel =
+        pending && conversation.requester_user_id === state.user.user_id
+          ? "esperando aceptación"
+          : pending
+            ? "solicitud pendiente"
+            : "";
       const unreadIcon =
-        conversation.unread_count > 0 ? '<span class="unread-dot" title="No leido"></span>' : "";
+        conversation.unread_count > 0 ? '<span class="unread-dot" title="No leído"></span>' : "";
       const unread =
-        conversation.unread_count > 0
+        pending
+          ? `<span class="kind-badge">${pendingLabel}</span>`
+          : conversation.unread_count > 0
           ? `<span class="unread-badge">${unreadIcon}${conversation.unread_count}</span>`
           : `<span class="kind-badge">${conversation.scope_type === "group" ? "grupo" : "directo"}</span>`;
       const presence =
         conversation.scope_type === "direct"
-          ? `<span class="presence-pill ${
-              state.usersById[conversation.peer_user_id]?.is_online ? "online" : "offline"
-            }">${
-              state.usersById[conversation.peer_user_id]?.is_online ? "online" : "offline"
-            }</span>`
+          ? pending
+            ? '<span class="presence-pill pending">pendiente</span>'
+            : `<span class="presence-pill ${
+                state.usersById[conversation.peer_user_id]?.is_online ? "online" : "offline"
+              }">${
+                state.usersById[conversation.peer_user_id]?.is_online ? "online" : "offline"
+              }</span>`
           : `<span class="presence-pill offline">${escapeHtml(
               conversation.member_count ? `${conversation.member_count} miembros` : "grupo"
             )}</span>`;
@@ -420,21 +434,36 @@ function renderConversationList() {
 function renderChatHeader() {
   const conversation = getSelectedConversation();
   if (!conversation) {
-    refs.chatTitle.textContent = "Selecciona una conversacion";
+    refs.chatTitle.textContent = "Selecciona una conversación";
     refs.chatSubtitle.textContent =
-      "Cuando abras un chat, los mensajes apareceran aqui.";
+      "Cuando abras un chat, los mensajes aparecerán aquí.";
     refs.chatPresence.classList.add("hidden");
+    refs.btnAcceptDirect.classList.add("hidden");
+    refs.btnGroupDetails.classList.add("hidden");
     return;
   }
 
   if (conversation.scope_type === "direct") {
     const profile = state.usersById[conversation.peer_user_id];
+    const pending = conversation.request_status === "pending";
+    const outgoingPending = pending && conversation.requester_user_id === state.user.user_id;
     refs.chatTitle.textContent = profile?.display_name || conversation.peer_user_id;
-    refs.chatSubtitle.textContent = `@${conversation.peer_user_id}`;
-    refs.chatPresence.textContent = profile?.is_online ? "online" : "offline";
+    refs.chatSubtitle.textContent = outgoingPending
+      ? `@${conversation.peer_user_id} todavía no ha aceptado tu solicitud.`
+      : pending
+        ? `@${conversation.peer_user_id} quiere iniciar un chat contigo.`
+        : `@${conversation.peer_user_id}`;
+    refs.chatPresence.textContent = pending
+      ? "pendiente"
+      : profile?.is_online
+        ? "online"
+        : "offline";
     refs.chatPresence.classList.remove("hidden");
-    refs.chatPresence.classList.toggle("online", Boolean(profile?.is_online));
-    refs.chatPresence.classList.toggle("offline", !profile?.is_online);
+    refs.chatPresence.classList.toggle("pending", pending);
+    refs.chatPresence.classList.toggle("online", !pending && Boolean(profile?.is_online));
+    refs.chatPresence.classList.toggle("offline", !pending && !profile?.is_online);
+    refs.btnAcceptDirect.classList.toggle("hidden", !pending || outgoingPending);
+    refs.btnGroupDetails.classList.add("hidden");
     return;
   }
 
@@ -442,14 +471,27 @@ function renderChatHeader() {
   refs.chatSubtitle.textContent = conversation.subtitle || "Grupo";
   refs.chatPresence.textContent = "grupo";
   refs.chatPresence.classList.remove("hidden");
+  refs.chatPresence.classList.remove("pending");
   refs.chatPresence.classList.remove("online");
   refs.chatPresence.classList.add("offline");
+  refs.btnAcceptDirect.classList.add("hidden");
+  refs.btnGroupDetails.classList.remove("hidden");
+  refs.btnGroupDetails.textContent = state.groupDetailsOpen ? "Ocultar detalles" : "Detalles";
 }
 
 function getPeerReceiptStatus(message) {
   if (!Array.isArray(message.receipts)) return "";
   const peerReceipt = message.receipts.find((receipt) => receipt.user_id !== state.user.user_id);
   return peerReceipt?.status || "";
+}
+
+function receiptStatusLabel(status) {
+  const labels = {
+    sent: "enviado",
+    delivered: "entregado",
+    read: "leído",
+  };
+  return labels[status] || status;
 }
 
 function getUnreadNotificationsForScope(scopeType, scopeId) {
@@ -506,7 +548,7 @@ function getNotificationContextLabel(notification) {
   }
   if (notification.scope_type === "group") return "Grupo";
   if (notification.scope_type === "direct") return "Chat directo";
-  return "Conversacion";
+  return "Conversación";
 }
 
 function enqueueNotificationToast(notification) {
@@ -548,14 +590,14 @@ function renderMessages() {
   const conversation = getSelectedConversation();
   if (!conversation) {
     refs.messages.innerHTML =
-      '<div class="message-empty">Selecciona una conversacion para empezar a hablar.</div>';
+      '<div class="message-empty">Selecciona una conversación para empezar a hablar.</div>';
     return;
   }
 
   const messages = state.messagesByConversation[conversation.key] || [];
   if (!messages.length) {
     refs.messages.innerHTML =
-      '<div class="message-empty">Todavia no hay mensajes en esta conversacion.</div>';
+      '<div class="message-empty">Todavía no hay mensajes en esta conversación.</div>';
     return;
   }
 
@@ -564,7 +606,7 @@ function renderMessages() {
       const mine = message.sender_id === state.user.user_id;
       const status =
         conversation.scope_type === "direct" && mine
-          ? `Estado: ${getPeerReceiptStatus(message) || "sent"}`
+          ? `Estado: ${receiptStatusLabel(getPeerReceiptStatus(message) || "sent")}`
           : "";
       const attachments = Array.isArray(message.attachments) ? message.attachments : [];
       const attachmentsHtml = attachments.length
@@ -583,7 +625,7 @@ function renderMessages() {
           <div class="message-head">
             <strong>${escapeHtml(
               mine
-                ? "Tu"
+                ? "Tú"
                 : state.usersById[message.sender_id]?.display_name || message.sender_id
             )}</strong>
             <time>${escapeHtml(formatDate(message.created_at))}</time>
@@ -601,12 +643,59 @@ function renderMessages() {
   refs.messages.scrollTop = refs.messages.scrollHeight;
 }
 
+function renderGroupDetails() {
+  const conversation = getSelectedConversation();
+  const visible = Boolean(
+    state.groupDetailsOpen && conversation && conversation.scope_type === "group"
+  );
+  refs.groupDetailsPanel.classList.toggle("hidden", !visible);
+  if (!visible) return;
+
+  const members = state.groupMembersByGroup[conversation.scope_id] || [];
+  refs.groupDetailsDescription.textContent =
+    conversation.subtitle && conversation.subtitle !== "Grupo"
+      ? conversation.subtitle
+      : "Este grupo no tiene descripción.";
+  refs.groupDetailsCount.textContent = `${members.length} ${
+    members.length === 1 ? "miembro" : "miembros"
+  }`;
+
+  if (!members.length) {
+    refs.groupDetailsMembers.innerHTML =
+      '<div class="member-empty">Cargando miembros del grupo...</div>';
+    return;
+  }
+
+  refs.groupDetailsMembers.innerHTML = members
+    .map((member) => {
+      const isSelf = member.user_id === state.user.user_id;
+      const profile = isSelf ? state.user : state.usersById[member.user_id];
+      const online = Boolean(profile?.is_online);
+      const name = isSelf
+        ? profile?.display_name || "Tú"
+        : profile?.display_name || member.user_id;
+      return `
+        <article class="member-row">
+          <div>
+            <strong>${escapeHtml(name)}</strong>
+            <small>@${escapeHtml(member.user_id)} · ${escapeHtml(member.role || "member")}</small>
+          </div>
+          <span class="presence-pill ${online ? "online" : "offline"}">
+            ${online ? "online" : "offline"}
+          </span>
+        </article>
+      `;
+    })
+    .join("");
+}
+
 function renderApp() {
   updateShell();
   updateProfileHeader();
   rebuildConversations();
   renderConversationList();
   renderChatHeader();
+  renderGroupDetails();
   renderMessages();
   renderNotificationWidget();
 }
@@ -736,13 +825,14 @@ async function login() {
   await refreshWorkspace();
 }
 
-async function lookupUser(userId) {
+async function fetchUserProfile(userId) {
   const normalized = userId.trim().toLowerCase();
   if (!normalized) {
     throw new Error("Debes escribir el user ID de destino.");
   }
   if (normalized === state.user.user_id) {
-    throw new Error("No puedes iniciar una conversacion contigo mismo.");
+    state.usersById[normalized] = state.user;
+    return state.user;
   }
 
   const data = await request(
@@ -750,6 +840,18 @@ async function lookupUser(userId) {
   );
   state.usersById[data.user_id] = data;
   return data;
+}
+
+async function lookupUser(userId) {
+  const normalized = userId.trim().toLowerCase();
+  if (!normalized) {
+    throw new Error("Debes escribir el user ID de destino.");
+  }
+  if (normalized === state.user.user_id) {
+    throw new Error("No puedes iniciar una conversación contigo mismo.");
+  }
+
+  return fetchUserProfile(normalized);
 }
 
 async function fetchDirectInbox() {
@@ -778,10 +880,13 @@ async function fetchDirectInbox() {
     preview:
       conversation.last_message?.body ||
       getAttachmentPreviewLabel(conversation.last_message) ||
-      "Todavia no hay mensajes.",
+      "Todavía no hay mensajes.",
     last_message: conversation.last_message || null,
     unread_count: conversation.unread_count || 0,
     updated_at: conversation.updated_at,
+    request_status: conversation.request_status || "accepted",
+    requester_user_id: conversation.requester_user_id || null,
+    can_send: conversation.can_send !== false,
   }));
 }
 
@@ -817,6 +922,14 @@ async function fetchGroupMembers(groupId) {
   const data = await request(`${state.settings.groups}/v1/groups/${groupId}/members`);
   state.groupMembersByGroup[groupId] = Array.isArray(data) ? data : [];
   return state.groupMembersByGroup[groupId];
+}
+
+async function loadGroupDetails(groupId) {
+  const members = await fetchGroupMembers(groupId);
+  await Promise.allSettled(
+    members.map((member) => fetchUserProfile(member.user_id))
+  );
+  return members;
 }
 
 function getGroupPreview(group) {
@@ -915,8 +1028,52 @@ async function openDirectConversation(userId) {
   state.selectedConversationKey = conversationKey("direct", data.scope_id);
   persistUi();
   refs.recipientUserId.value = "";
-  showToast(`Chat listo con @${peer.user_id}`, "info");
+  showToast(
+    data.can_send
+      ? `Chat listo con @${peer.user_id}`
+      : `Solicitud enviada a @${peer.user_id}`,
+    "info"
+  );
   await refreshWorkspace({ refreshSelectedMessages: true });
+}
+
+async function acceptSelectedDirectConversation() {
+  const conversation = getSelectedConversation();
+  if (!conversation || conversation.scope_type !== "direct") {
+    throw new Error("Selecciona una solicitud de chat directo.");
+  }
+  if (conversation.request_status !== "pending") {
+    throw new Error("Este chat ya fue aceptado.");
+  }
+  if (conversation.requester_user_id === state.user.user_id) {
+    throw new Error("Debes esperar a que la otra persona acepte la solicitud.");
+  }
+
+  await request(
+    `${state.settings.messaging}/v1/direct-conversations/${encodeURIComponent(
+      conversation.scope_id
+    )}/accept`,
+    {
+      method: "POST",
+      body: JSON.stringify({ user_id: state.user.user_id }),
+    }
+  );
+  showToast(`Chat aceptado con @${conversation.peer_user_id}`, "success");
+  await refreshWorkspace({ refreshSelectedMessages: true });
+}
+
+async function toggleSelectedGroupDetails() {
+  const conversation = getSelectedConversation();
+  if (!conversation || conversation.scope_type !== "group") {
+    throw new Error("Selecciona un grupo para ver sus detalles.");
+  }
+
+  state.groupDetailsOpen = !state.groupDetailsOpen;
+  renderApp();
+  if (!state.groupDetailsOpen) return;
+
+  await loadGroupDetails(conversation.scope_id);
+  renderApp();
 }
 
 async function createGroupConversation() {
@@ -929,6 +1086,9 @@ async function createGroupConversation() {
   const memberIds = parseCommaList(refs.groupMembersInput.value).filter(
     (userId) => userId !== state.user.user_id
   );
+  if (memberIds.length < 2) {
+    throw new Error("Para crear un grupo debes agregar al menos 2 usuarios.");
+  }
 
   await Promise.all(memberIds.map((userId) => lookupUser(userId)));
 
@@ -938,18 +1098,9 @@ async function createGroupConversation() {
       name,
       description,
       settings: {},
+      member_ids: memberIds,
     }),
   });
-
-  for (const userId of memberIds) {
-    await request(`${state.settings.groups}/v1/groups/${group.id}/members`, {
-      method: "POST",
-      body: JSON.stringify({
-        user_id: userId,
-        role: "member",
-      }),
-    });
-  }
 
   refs.groupName.value = "";
   refs.groupDescription.value = "";
@@ -995,7 +1146,7 @@ async function fetchMessages(conversationKeyValue, options = {}) {
     await Promise.allSettled(
       [...memberIds]
         .filter((userId) => userId && !state.usersById[userId] && userId !== state.user.user_id)
-        .map((userId) => lookupUser(userId))
+        .map((userId) => fetchUserProfile(userId))
     );
   }
 
@@ -1048,7 +1199,10 @@ async function markNotificationsReadForConversation(conversation) {
 async function sendMessage() {
   const conversation = getSelectedConversation();
   if (!conversation) {
-    throw new Error("Selecciona una conversacion antes de enviar.");
+    throw new Error("Selecciona una conversación antes de enviar.");
+  }
+  if (conversation.scope_type === "direct" && !conversation.can_send) {
+    throw new Error("Este chat directo debe ser aceptado antes de enviar mensajes.");
   }
 
   const body = refs.messageInput.value.trim();
@@ -1094,7 +1248,16 @@ async function sendMessage() {
 }
 
 function selectConversation(key) {
+  const previousConversation = getSelectedConversation();
   state.selectedConversationKey = key;
+  const nextConversation = getSelectedConversation();
+  if (
+    !nextConversation ||
+    nextConversation.scope_type !== "group" ||
+    previousConversation?.key !== nextConversation.key
+  ) {
+    state.groupDetailsOpen = false;
+  }
   persistUi();
   renderApp();
   const conversation = getSelectedConversation();
@@ -1142,10 +1305,11 @@ async function logout() {
   state.notificationSeenIds = {};
   clearNotificationToasts();
   state.notificationsInitialized = false;
+  state.groupDetailsOpen = false;
   persistSession();
   persistUi();
   renderApp();
-  showToast("Sesion cerrada", "info");
+  showToast("Sesión cerrada", "info");
 }
 
 function startPolling() {
@@ -1271,7 +1435,26 @@ function bindEvents() {
   refs.drawerBackdrop.addEventListener("click", () => openSettingsDrawer(false));
 
   refs.btnSaveSettings.addEventListener("click", () => saveSettings());
-  refs.btnClearOutput.addEventListener("click", () => setOutput("Aun no hay respuestas."));
+  refs.btnClearOutput.addEventListener("click", () => setOutput("Aún no hay respuestas."));
+  refs.btnAcceptDirect.addEventListener("click", async () => {
+    await runWithBusyState(refs.btnAcceptDirect, "Aceptando...", async () => {
+      try {
+        await acceptSelectedDirectConversation();
+      } catch (error) {
+        showToast(String(error), "error");
+      }
+    });
+  });
+  refs.btnGroupDetails.addEventListener("click", async () => {
+    await runWithBusyState(refs.btnGroupDetails, "Cargando...", async () => {
+      try {
+        await toggleSelectedGroupDetails();
+      } catch (error) {
+        showToast(String(error), "error");
+      }
+    });
+    renderApp();
+  });
 }
 
 async function restoreSessionIfPossible() {
@@ -1296,7 +1479,7 @@ async function bootstrap() {
   );
   loadPersistedState();
   syncSettingsInputs();
-  setOutput("Aun no hay respuestas.");
+  setOutput("Aún no hay respuestas.");
   setAuthMode(state.authMode);
   bindEvents();
   renderApp();

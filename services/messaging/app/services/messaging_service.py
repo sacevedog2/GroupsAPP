@@ -13,11 +13,12 @@ from app.db.models import (
     Attachment,
     DirectConversation,
     DirectConversationParticipant,
+    DirectConversationRequest,
     Message,
     MessageAttachment,
     MessageReceipt,
 )
-from app.domain.enums import ReceiptStatus, STATUS_RANK, ScopeType
+from app.domain.enums import DirectRequestStatus, ReceiptStatus, STATUS_RANK, ScopeType
 from app.schemas.events import DomainEvent
 from app.schemas.messaging import (
     DirectConversationStartRequest,
@@ -46,7 +47,7 @@ class MessagingService:
         return f"dm_{digest[:40]}"
 
     async def ensure_direct_conversation(
-        self, user_a: str, user_b: str, actor_user_id: str | None = None
+        self, user_a: str, user_b: str
     ) -> DirectConversation:
         normalized_a = user_a.strip().lower()
         normalized_b = user_b.strip().lower()
@@ -78,24 +79,99 @@ class MessagingService:
             ]
         )
         await self.session.commit()
-        conversation = await self.get_direct_conversation_record(scope_id)
+        return await self.get_direct_conversation_record(scope_id)
+
+    async def ensure_direct_conversation_request(
+        self, requester_id: str, recipient_id: str
+    ) -> tuple[DirectConversation, DirectConversationRequest]:
+        normalized_requester = requester_id.strip().lower()
+        normalized_recipient = recipient_id.strip().lower()
+        conversation = await self.ensure_direct_conversation(
+            normalized_requester, normalized_recipient
+        )
+        existing_request = await self.session.get(
+            DirectConversationRequest, conversation.scope_id
+        )
+        if existing_request is not None:
+            return conversation, existing_request
+
+        request = DirectConversationRequest(
+            scope_id=conversation.scope_id,
+            requester_id=normalized_requester,
+            recipient_id=normalized_recipient,
+            status=DirectRequestStatus.PENDING,
+        )
+        self.session.add(request)
+        await self.session.commit()
+        await self.session.refresh(request)
 
         await self.event_publisher.publish(
             DomainEvent(
                 id=str(uuid4()),
-                event_type="direct_conversation.started",
+                event_type="direct_conversation.requested",
                 scope_type=ScopeType.DIRECT,
-                scope_id=scope_id,
+                scope_id=conversation.scope_id,
                 payload={
-                    "scope_id": scope_id,
-                    "user_id": normalized_a,
-                    "peer_user_id": normalized_b,
-                    "actor_user_id": (actor_user_id or normalized_a).strip().lower(),
+                    "scope_id": conversation.scope_id,
+                    "user_id": normalized_requester,
+                    "peer_user_id": normalized_recipient,
+                    "actor_user_id": normalized_requester,
                 },
                 created_at=datetime.now(timezone.utc),
             )
         )
-        return conversation
+        return conversation, request
+
+    async def accept_direct_conversation(
+        self, scope_id: str, user_id: str
+    ) -> dict[str, object]:
+        normalized_user_id = user_id.strip().lower()
+        conversation = await self.get_direct_conversation_record(scope_id)
+        request = await self.session.get(DirectConversationRequest, scope_id)
+        if request is None:
+            return await self._build_direct_conversation_summary(
+                conversation=conversation,
+                user_id=normalized_user_id,
+                request=None,
+            )
+
+        if request.recipient_id != normalized_user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Solo el destinatario puede aceptar esta solicitud de chat.",
+            )
+
+        if request.status != DirectRequestStatus.ACCEPTED:
+            now = datetime.now(timezone.utc)
+            request.status = DirectRequestStatus.ACCEPTED
+            request.accepted_at = now
+            request.updated_at = now
+            conversation.updated_at = now
+            await self.session.commit()
+            await self.session.refresh(request)
+            conversation = await self.get_direct_conversation_record(scope_id)
+
+            await self.event_publisher.publish(
+                DomainEvent(
+                    id=str(uuid4()),
+                    event_type="direct_conversation.started",
+                    scope_type=ScopeType.DIRECT,
+                    scope_id=scope_id,
+                    payload={
+                        "scope_id": scope_id,
+                        "user_id": request.requester_id,
+                        "peer_user_id": request.recipient_id,
+                        "actor_user_id": normalized_user_id,
+                    },
+                    created_at=datetime.now(timezone.utc),
+                )
+            )
+
+        return await self._build_direct_conversation_summary(
+            conversation=conversation,
+            user_id=normalized_user_id,
+            request=request,
+        )
 
     async def get_direct_conversation_record(
         self, scope_id: str
@@ -103,7 +179,10 @@ class MessagingService:
         stmt = (
             select(DirectConversation)
             .where(DirectConversation.scope_id == scope_id)
-            .options(selectinload(DirectConversation.participants))
+            .options(
+                selectinload(DirectConversation.participants),
+                selectinload(DirectConversation.request),
+            )
         )
         conversation = (await self.session.execute(stmt)).scalar_one_or_none()
         if conversation is None:
@@ -191,9 +270,17 @@ class MessagingService:
                 for participant in participants
                 if participant != payload.sender_id
             )
-            conversation = await self.ensure_direct_conversation(
-                payload.sender_id, peer_user_id, actor_user_id=payload.sender_id
-            )
+            scope_id = self.build_direct_scope_id(payload.sender_id, peer_user_id)
+            conversation = await self.get_direct_conversation_record(scope_id)
+            request = conversation.request
+            if request is not None and request.status != DirectRequestStatus.ACCEPTED:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=(
+                        "La solicitud de chat directo debe ser aceptada antes "
+                        "de enviar mensajes."
+                    ),
+                )
             scope_id = conversation.scope_id
         elif not scope_id:
             raise HTTPException(
@@ -317,27 +404,14 @@ class MessagingService:
     async def get_direct_conversation(
         self, payload: DirectConversationStartRequest
     ) -> dict[str, object]:
-        conversation = await self.ensure_direct_conversation(
-            payload.user_id, payload.peer_user_id, actor_user_id=payload.user_id
+        conversation, request = await self.ensure_direct_conversation_request(
+            payload.user_id, payload.peer_user_id
         )
-        scope_id = conversation.scope_id
-        last_message = await self._get_latest_message_for_scope(
-            scope_type=ScopeType.DIRECT,
-            scope_id=scope_id,
-        )
-        unread_count = await self._count_unread_messages(
-            scope_id=scope_id,
+        return await self._build_direct_conversation_summary(
+            conversation=conversation,
             user_id=payload.user_id,
+            request=request,
         )
-        updated_at = last_message.created_at if last_message is not None else None
-        return {
-            "scope_id": scope_id,
-            "user_id": payload.user_id,
-            "peer_user_id": payload.peer_user_id,
-            "last_message": last_message,
-            "unread_count": unread_count,
-            "updated_at": updated_at or conversation.updated_at,
-        }
 
     async def list_direct_conversations(self, user_id: str) -> list[dict[str, object]]:
         normalized_user_id = user_id.strip().lower()
@@ -351,35 +425,57 @@ class MessagingService:
                 DirectConversationParticipant.user_id == normalized_user_id,
             )
             .options(selectinload(DirectConversation.participants))
+            .options(selectinload(DirectConversation.request))
             .order_by(desc(DirectConversation.updated_at))
         )
 
         conversations_db = list((await self.session.scalars(stmt)).unique().all())
         conversations: list[dict[str, object]] = []
         for conversation in conversations_db:
-            peer_user_id = self._extract_peer_user_id_from_conversation(
-                conversation, normalized_user_id
-            )
-            last_message = await self._get_latest_message_for_scope(
-                scope_type=ScopeType.DIRECT,
-                scope_id=conversation.scope_id,
-            )
-            unread_count = await self._count_unread_messages(
-                scope_id=conversation.scope_id,
-                user_id=normalized_user_id,
-            )
             conversations.append(
-                {
-                    "scope_id": conversation.scope_id,
-                    "user_id": normalized_user_id,
-                    "peer_user_id": peer_user_id,
-                    "last_message": last_message,
-                    "unread_count": unread_count,
-                    "updated_at": last_message.created_at if last_message else conversation.updated_at,
-                }
+                await self._build_direct_conversation_summary(
+                    conversation=conversation,
+                    user_id=normalized_user_id,
+                    request=conversation.request,
+                )
             )
 
         return conversations
+
+    async def _build_direct_conversation_summary(
+        self,
+        conversation: DirectConversation,
+        user_id: str,
+        request: DirectConversationRequest | None,
+    ) -> dict[str, object]:
+        normalized_user_id = user_id.strip().lower()
+        peer_user_id = self._extract_peer_user_id_from_conversation(
+            conversation, normalized_user_id
+        )
+        last_message = await self._get_latest_message_for_scope(
+            scope_type=ScopeType.DIRECT,
+            scope_id=conversation.scope_id,
+        )
+        unread_count = await self._count_unread_messages(
+            scope_id=conversation.scope_id,
+            user_id=normalized_user_id,
+        )
+        request_status = (
+            request.status if request is not None else DirectRequestStatus.ACCEPTED
+        )
+        requester_id = request.requester_id if request is not None else None
+        updated_at = last_message.created_at if last_message is not None else None
+        return {
+            "scope_id": conversation.scope_id,
+            "user_id": normalized_user_id,
+            "peer_user_id": peer_user_id,
+            "request_status": request_status,
+            "requester_user_id": requester_id,
+            "can_send": request_status == DirectRequestStatus.ACCEPTED,
+            "last_message": last_message,
+            "unread_count": unread_count,
+            "updated_at": updated_at or conversation.updated_at,
+        }
 
     async def _get_latest_message_for_scope(
         self, scope_type: ScopeType, scope_id: str

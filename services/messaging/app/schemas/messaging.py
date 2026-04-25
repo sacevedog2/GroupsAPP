@@ -4,7 +4,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.domain.enums import ReceiptStatus, ScopeType
+from app.domain.enums import DirectRequestStatus, ReceiptStatus, ScopeType
 
 
 class AttachmentOut(BaseModel):
@@ -101,6 +101,9 @@ class DirectConversationSummaryOut(BaseModel):
     scope_id: str
     user_id: str
     peer_user_id: str
+    request_status: DirectRequestStatus = DirectRequestStatus.ACCEPTED
+    requester_user_id: str | None = None
+    can_send: bool = True
     last_message: MessageOut | None = None
     unread_count: int = 0
     updated_at: datetime | None = None
@@ -111,6 +114,15 @@ class DirectConversationSummaryOut(BaseModel):
 class DirectConversationListOut(BaseModel):
     items: list[DirectConversationSummaryOut]
     count: int
+
+
+class DirectConversationAcceptRequest(BaseModel):
+    user_id: str = Field(min_length=1, max_length=64)
+
+    @model_validator(mode="after")
+    def normalize_user(self) -> DirectConversationAcceptRequest:
+        self.user_id = self.user_id.strip().lower()
+        return self
 
 
 class ReceiptUpdateRequest(BaseModel):
