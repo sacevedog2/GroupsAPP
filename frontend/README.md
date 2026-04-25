@@ -1,7 +1,5 @@
 # Frontend - GroupsApp
 
-Frontend minimalista en tema oscuro para mensajería directa y grupal:
-
 - registro solo con correo y contraseña
 - `user_id` generado automáticamente por backend
 - inbox combinado con conversaciones directas y grupos
