@@ -574,6 +574,10 @@ textarea:focus {
   color: var(--muted);
 }
 
+.conversation-item time {
+  font-size: 0.66rem;
+}
+
 .conversation-item p {
   display: -webkit-box;
   overflow: hidden;

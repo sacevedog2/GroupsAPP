@@ -368,7 +368,7 @@ function renderConversationList() {
       const subtitle =
         conversation.scope_type === "direct"
           ? `@${conversation.peer_user_id}`
-          : conversation.subtitle || "Grupo";
+          : "";
       const preview = conversation.preview || "Todavía no hay mensajes.";
       const pending = conversation.request_status === "pending";
       const pendingLabel =
@@ -406,7 +406,7 @@ function renderConversationList() {
             <div class="conversation-top">
               <div>
                 <strong>${escapeHtml(label)}</strong>
-                <small>${escapeHtml(subtitle)}</small>
+                ${subtitle ? `<small>${escapeHtml(subtitle)}</small>` : ""}
               </div>
               ${unread}
             </div>
@@ -483,6 +483,37 @@ function getPeerReceiptStatus(message) {
   if (!Array.isArray(message.receipts)) return "";
   const peerReceipt = message.receipts.find((receipt) => receipt.user_id !== state.user.user_id);
   return peerReceipt?.status || "";
+}
+
+function getGroupReceiptStatusLabel(message) {
+  const receipts = Array.isArray(message.receipts)
+    ? message.receipts.filter((receipt) => receipt.user_id !== state.user.user_id)
+    : [];
+
+  if (!receipts.length) return receiptStatusLabel("sent");
+
+  let readCount = 0;
+  let deliveredCount = 0;
+  for (const receipt of receipts) {
+    if (receipt.status === "read") {
+      readCount += 1;
+      continue;
+    }
+    if (receipt.status === "delivered") {
+      deliveredCount += 1;
+    }
+  }
+
+  if (readCount === receipts.length) {
+    return `leído por ${readCount}`;
+  }
+
+  const reachedCount = readCount + deliveredCount;
+  if (reachedCount > 0) {
+    return `entregado a ${reachedCount} de ${receipts.length}`;
+  }
+
+  return receiptStatusLabel("sent");
 }
 
 function receiptStatusLabel(status) {
@@ -604,10 +635,11 @@ function renderMessages() {
   refs.messages.innerHTML = messages
     .map((message) => {
       const mine = message.sender_id === state.user.user_id;
-      const status =
-        conversation.scope_type === "direct" && mine
+      const status = mine
+        ? conversation.scope_type === "direct"
           ? `Estado: ${receiptStatusLabel(getPeerReceiptStatus(message) || "sent")}`
-          : "";
+          : `Estado: ${getGroupReceiptStatusLabel(message)}`
+        : "";
       const attachments = Array.isArray(message.attachments) ? message.attachments : [];
       const attachmentsHtml = attachments.length
         ? `
@@ -864,11 +896,15 @@ async function fetchDirectInbox() {
   );
 
   const items = Array.isArray(data.items) ? data.items : [];
-  const peerLookups = items
-    .map((conversation) => conversation.peer_user_id)
-    .filter((userId) => userId && !state.usersById[userId]);
+  const peerLookups = Array.from(
+    new Set(
+      items
+        .map((conversation) => conversation.peer_user_id)
+        .filter((userId) => userId)
+    )
+  );
 
-  await Promise.allSettled(peerLookups.map((userId) => lookupUser(userId)));
+  await Promise.allSettled(peerLookups.map((userId) => fetchUserProfile(userId)));
 
   state.directConversations = items.map((conversation) => ({
     key: conversationKey("direct", conversation.scope_id),
@@ -939,7 +975,6 @@ function getGroupPreview(group) {
   return (
     lastMessage?.body ||
     getAttachmentPreviewLabel(lastMessage) ||
-    group.description ||
     "Grupo listo para conversar."
   );
 }
@@ -1006,6 +1041,13 @@ async function refreshWorkspace(options = {}) {
   if (!state.selectedConversationKey && state.conversations.length) {
     state.selectedConversationKey = state.conversations[0].key;
     persistUi();
+  }
+
+  if (state.groupDetailsOpen) {
+    const conversation = getSelectedConversation();
+    if (conversation?.scope_type === "group") {
+      await loadGroupDetails(conversation.scope_id);
+    }
   }
 
   renderApp();
@@ -1152,7 +1194,7 @@ async function fetchMessages(conversationKeyValue, options = {}) {
 
   renderApp();
 
-  if (markRead && conversation.scope_type === "direct") {
+  if (markRead) {
     const unread = items.filter((message) => {
       if (message.sender_id === state.user.user_id) return false;
       const myReceipt = (message.receipts || []).find(
@@ -1174,7 +1216,9 @@ async function fetchMessages(conversationKeyValue, options = {}) {
         )
       );
       await fetchMessages(conversationKeyValue, { markRead: false });
-      await fetchDirectInbox();
+      if (conversation.scope_type === "direct") {
+        await fetchDirectInbox();
+      }
       renderApp();
     }
   }
