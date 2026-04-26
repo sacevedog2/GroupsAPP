@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: groupsapp-api-gateway-lb
+  namespace: groupsapp
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
+spec:
+  type: LoadBalancer
+  selector:
+    app: groupsapp-api-gateway
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: groupsapp-rabbitmq
+  namespace: groupsapp
+  labels:
+    app: groupsapp-rabbitmq
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: groupsapp-rabbitmq
+  template:
+    metadata:
+      labels:
+        app: groupsapp-rabbitmq
+    spec:
+      containers:
+        - name: rabbitmq
+          image: 992646667898.dkr.ecr.us-east-1.amazonaws.com/rabbitmq-groupsapp:v1
+          imagePullPolicy: Always
+          ports:
+            - name: amqp
+              containerPort: 5672
+            - name: management
+              containerPort: 15672
+          env:
+            - name: RABBITMQ_DEFAULT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: rabbitmq-secret
+                  key: RABBITMQ_USER
+            - name: RABBITMQ_DEFAULT_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: rabbitmq-secret
+                  key: RABBITMQ_PASSWORD
+          readinessProbe:
+            exec:
+              command: ["rabbitmq-diagnostics", "-q", "ping"]
+            initialDelaySeconds: 45
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 12
+          livenessProbe:
+            exec:
+              command: ["rabbitmq-diagnostics", "-q", "ping"]
+            initialDelaySeconds: 90
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 768Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: groupsapp-rabbitmq
+  namespace: groupsapp
+  labels:
+    app: groupsapp-rabbitmq
+spec:
+  type: ClusterIP
+  selector:
+    app: groupsapp-rabbitmq
+  ports:
+    - name: amqp
+      port: 5672
+      targetPort: amqp
+    - name: management
+      port: 15672
+      targetPort: management

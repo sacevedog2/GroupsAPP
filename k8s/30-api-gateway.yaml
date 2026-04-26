@@ -1,0 +1,126 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: groupsapp-api-gateway-config
+  namespace: groupsapp
+data:
+  default.conf: |
+    server {
+      listen 80;
+      server_name _;
+      client_max_body_size 60m;
+
+      location = /healthz {
+        access_log off;
+        return 200 "ok\n";
+      }
+
+      location /api/auth/ {
+        proxy_pass http://groupsapp-auth/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+      }
+
+      location /api/groups/ {
+        proxy_pass http://groupsapp-groups/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+      }
+
+      location /api/messaging/ {
+        proxy_pass http://groupsapp-messaging/;
+        proxy_read_timeout 120s;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+      }
+
+      location /api/notifications/ {
+        proxy_pass http://groupsapp-notifications/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+      }
+
+      location / {
+        proxy_pass http://groupsapp-frontend/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: groupsapp-api-gateway
+  namespace: groupsapp
+  labels:
+    app: groupsapp-api-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: groupsapp-api-gateway
+  template:
+    metadata:
+      labels:
+        app: groupsapp-api-gateway
+    spec:
+      containers:
+        - name: nginx
+          image: 992646667898.dkr.ecr.us-east-1.amazonaws.com/frontend-groupsapp:v1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 80
+          volumeMounts:
+            - name: gateway-config
+              mountPath: /etc/nginx/conf.d/default.conf
+              subPath: default.conf
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+      volumes:
+        - name: gateway-config
+          configMap:
+            name: groupsapp-api-gateway-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: groupsapp-api-gateway
+  namespace: groupsapp
+  labels:
+    app: groupsapp-api-gateway
+spec:
+  type: ClusterIP
+  selector:
+    app: groupsapp-api-gateway
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
