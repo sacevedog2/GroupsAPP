@@ -134,11 +134,25 @@ function writeStorage(key, value) {
   localStorage.setItem(key, JSON.stringify(value));
 }
 
+function readSessionStorage(key, fallback) {
+  try {
+    const raw = sessionStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch (_) {
+    return fallback;
+  }
+}
+
+function writeSessionStorage(key, value) {
+  sessionStorage.setItem(key, JSON.stringify(value));
+}
+
 function loadPersistedState() {
-  const session = readStorage(STORAGE_KEYS.session, {});
+  const session = readSessionStorage(STORAGE_KEYS.session, {});
   const settings = readStorage(STORAGE_KEYS.settings, DEFAULT_SETTINGS);
   const ui = readStorage(STORAGE_KEYS.ui, {});
 
+  localStorage.removeItem(STORAGE_KEYS.session);
   state.token = session.token || "";
   state.user = session.user || null;
   state.settings = { ...DEFAULT_SETTINGS, ...settings };
@@ -147,7 +161,7 @@ function loadPersistedState() {
 }
 
 function persistSession() {
-  writeStorage(STORAGE_KEYS.session, {
+  writeSessionStorage(STORAGE_KEYS.session, {
     token: state.token,
     user: state.user,
   });
@@ -1439,6 +1453,13 @@ async function addMemberToChannel(channelId, userId) {
     throw new Error("Escribe el usuario que quieres añadir al canal.");
   }
 
+  const groupMembers = new Set(
+    (state.groupMembersByGroup[conversation.scope_id] || []).map((member) => member.user_id)
+  );
+  if (!groupMembers.has(normalizedUserId)) {
+    throw new Error(`@${normalizedUserId} debe pertenecer al grupo antes de entrar al canal.`);
+  }
+
   await request(
     `${state.settings.groups}/v1/groups/${conversation.scope_id}/channels/${encodeURIComponent(
       channelId
@@ -1742,6 +1763,20 @@ async function logout() {
   showToast("Sesión cerrada", "info");
 }
 
+function sendOfflinePresenceOnPageHide() {
+  if (!isAuthenticated()) return;
+
+  fetch(`${state.settings.auth}/v1/auth/presence`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${state.token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ is_online: false }),
+    keepalive: true,
+  }).catch(() => {});
+}
+
 function startPolling() {
   stopPolling();
   state.pollTimer = window.setInterval(async () => {
@@ -1765,6 +1800,10 @@ function stopPolling() {
 }
 
 function bindEvents() {
+  window.addEventListener("pagehide", () => {
+    sendOfflinePresenceOnPageHide();
+  });
+
   refs.btnTabLogin.addEventListener("click", () => setAuthMode("login"));
   refs.btnTabRegister.addEventListener("click", () => setAuthMode("register"));
 

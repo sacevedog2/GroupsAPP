@@ -54,6 +54,20 @@ def require_channel_candidate(group_id: str, user_id: str, db: Session) -> str:
         raise HTTPException(status_code=400, detail="El usuario debe pertenecer al grupo antes de entrar al canal.")
     return normalized_user_id
 
+
+def resolve_channel_member_ids(
+    group_id: str,
+    creator_user_id: str,
+    requested_member_ids: list[str],
+    db: Session,
+) -> list[str]:
+    member_ids: list[str] = []
+    for user_id in [creator_user_id, *requested_member_ids]:
+        normalized_user_id = require_channel_candidate(group_id, user_id, db)
+        if normalized_user_id not in member_ids:
+            member_ids.append(normalized_user_id)
+    return member_ids
+
 def add_channel_member_record(
     group_id: str,
     channel_id: str,
@@ -278,18 +292,19 @@ def create_channel(group_id: str, channel: schemas.ChannelCreate, current_user_i
     if existing_channel:
         raise HTTPException(status_code=400, detail="Ya existe un canal con ese nombre en el grupo.")
 
+    member_ids = resolve_channel_member_ids(
+        group_id,
+        current_user_id,
+        channel.member_ids,
+        db,
+    )
+
     db_channel = models.Channel(
         group_id=group_id,
         name=name
     )
     db.add(db_channel)
     db.flush()
-
-    member_ids = []
-    for user_id in [current_user_id, *channel.member_ids]:
-        normalized_user_id = normalize_user_id(user_id)
-        if normalized_user_id and normalized_user_id not in member_ids:
-            member_ids.append(normalized_user_id)
 
     for user_id in member_ids:
         add_channel_member_record(group_id, db_channel.id, user_id, db)
