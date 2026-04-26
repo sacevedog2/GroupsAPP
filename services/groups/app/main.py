@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings, logger
+from app.core.observability import configure_observability
 from app.db.database import engine
 from app.db import models
 
@@ -37,6 +38,15 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+)
+configure_observability(
+    app,
+    service_name=settings.SERVICE_NAME,
+    environment=settings.ENVIRONMENT,
+    log_level=settings.LOG_LEVEL,
+    log_dir=settings.LOG_DIR,
+    log_max_bytes=settings.LOG_MAX_BYTES,
+    log_backup_count=settings.LOG_BACKUP_COUNT,
 )
 
 @app.get("/healthz")

@@ -9,13 +9,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import router as notifications_router
 from app.core.config import Settings, get_settings
+from app.core.observability import configure_observability
 from app.db.session import close_engine, create_schema, init_engine, ping_db
 from app.services.event_consumer import EventConsumer
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s %(message)s",
-)
+logger = logging.getLogger(__name__)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -38,10 +36,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         app.state.settings = resolved_settings
         app.state.event_consumer = event_consumer
+        logger.info("service.started api_port=%s", resolved_settings.api_port)
 
         try:
             yield
         finally:
+            logger.info("service.stopping")
             await event_consumer.stop()
             await close_engine()
 
@@ -56,6 +56,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+    )
+    configure_observability(
+        app,
+        service_name=resolved_settings.service_name,
+        environment=resolved_settings.environment,
+        log_level=resolved_settings.log_level,
+        log_dir=resolved_settings.log_dir,
+        log_max_bytes=resolved_settings.log_max_bytes,
+        log_backup_count=resolved_settings.log_backup_count,
     )
     app.include_router(notifications_router)
 

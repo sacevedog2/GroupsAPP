@@ -76,6 +76,8 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+    volumes:
+      - ./services/auth/logs:/app/logs
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/readyz', timeout=3)\""]
       interval: 10s
@@ -104,6 +106,8 @@ services:
         condition: service_healthy
       auth-service:
         condition: service_healthy
+    volumes:
+      - ./services/groups/logs:/app/logs
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/readyz', timeout=3)\""]
       interval: 10s
@@ -128,6 +132,7 @@ services:
       - "50051:50051"
     volumes:
       - ./services/messaging/data:/app/data
+      - ./services/messaging/logs:/app/logs
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -153,6 +158,7 @@ services:
       - "8083:8083"
     volumes:
       - ./services/notifications/data:/app/data
+      - ./services/notifications/logs:/app/logs
     depends_on:
       rabbitmq:
         condition: service_healthy

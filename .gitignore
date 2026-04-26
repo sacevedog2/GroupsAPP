@@ -9,3 +9,5 @@ app/grpc/generated/
 .env
 .DS_Store
 .vscode/
+logs/
+*.log

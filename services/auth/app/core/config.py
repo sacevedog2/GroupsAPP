@@ -6,6 +6,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     service_name: str = "groupsapp-auth"
     environment: str = "dev"
+    log_level: str = "INFO"
+    log_dir: str = "./logs"
+    log_max_bytes: int = 5 * 1024 * 1024
+    log_backup_count: int = 5
 
     api_host: str = "0.0.0.0"
     api_port: int = 8081
