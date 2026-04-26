@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: messaging
-          image: <aws_account_id>.dkr.ecr.<region>.amazonaws.com/groupsapp-messaging:latest
+          image: <aws_account_id>.dkr.ecr.<region>.amazonaws.com/messaging:latest
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

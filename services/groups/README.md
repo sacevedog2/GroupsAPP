@@ -11,9 +11,16 @@ Microservicio para grupos, miembros, canales y contactos de GroupsApp.
 - `GET /v1/groups/`
 - `POST /v1/groups/`
 - `GET /v1/groups/{group_id}`
+- `PATCH /v1/groups/{group_id}`
+- `DELETE /v1/groups/{group_id}`
 - `POST /v1/groups/{group_id}/members`
 - `GET /v1/groups/{group_id}/members`
+- `DELETE /v1/groups/{group_id}/members/{user_id}`
+- `GET /v1/groups/{group_id}/channels`
 - `POST /v1/groups/{group_id}/channels`
+- `GET /v1/groups/{group_id}/channels/{channel_id}/members`
+- `POST /v1/groups/{group_id}/channels/{channel_id}/members`
+- `DELETE /v1/groups/{group_id}/channels/{channel_id}/members/{user_id}`
 - `POST /v1/contacts/`
 - `GET /v1/contacts/`
 - `GET /healthz`

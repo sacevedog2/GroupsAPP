@@ -16,6 +16,18 @@ def get_group_or_404(group_id: str, db: Session) -> models.Group:
         raise HTTPException(status_code=404, detail="Group not found")
     return group
 
+def get_channel_or_404(group_id: str, channel_id: str, db: Session) -> models.Channel:
+    channel = db.query(models.Channel).filter(
+        models.Channel.id == channel_id,
+        models.Channel.group_id == group_id,
+    ).first()
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+    return channel
+
+def normalize_user_id(user_id: str) -> str:
+    return user_id.strip().lower()
+
 def get_membership(group_id: str, user_id: str, db: Session) -> models.GroupMember | None:
     return db.query(models.GroupMember).filter(
         models.GroupMember.group_id == group_id,
@@ -33,6 +45,36 @@ def require_group_admin(group_id: str, user_id: str, db: Session) -> models.Grou
     if membership.role != models.RoleEnum.ADMIN.value:
         raise HTTPException(status_code=403, detail="Solo el admin del grupo puede hacer esta acción.")
     return membership
+
+def require_channel_candidate(group_id: str, user_id: str, db: Session) -> str:
+    normalized_user_id = normalize_user_id(user_id)
+    if not normalized_user_id:
+        raise HTTPException(status_code=400, detail="El usuario es obligatorio.")
+    if not get_membership(group_id, normalized_user_id, db):
+        raise HTTPException(status_code=400, detail="El usuario debe pertenecer al grupo antes de entrar al canal.")
+    return normalized_user_id
+
+def add_channel_member_record(
+    group_id: str,
+    channel_id: str,
+    user_id: str,
+    db: Session,
+) -> models.ChannelMember:
+    normalized_user_id = require_channel_candidate(group_id, user_id, db)
+    existing_member = db.query(models.ChannelMember).filter(
+        models.ChannelMember.channel_id == channel_id,
+        models.ChannelMember.user_id == normalized_user_id,
+    ).first()
+    if existing_member:
+        return existing_member
+
+    channel_member = models.ChannelMember(
+        channel_id=channel_id,
+        group_id=group_id,
+        user_id=normalized_user_id,
+    )
+    db.add(channel_member)
+    return channel_member
 
 @router.get("/", response_model=List[schemas.GroupResponse])
 def list_groups(
@@ -134,11 +176,23 @@ def update_group(group_id: str, group_update: schemas.GroupUpdate, current_user_
     })
     return group
 
+@router.delete("/{group_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_group(group_id: str, current_user_id: str = Depends(get_current_user), db: Session = Depends(get_db)):
+    group = get_group_or_404(group_id, db)
+    require_group_admin(group_id, current_user_id, db)
+    db.delete(group)
+    db.commit()
+    publisher.publish("group.deleted", {
+        "group_id": group_id,
+        "actor_user_id": current_user_id,
+    })
+    return None
+
 @router.post("/{group_id}/members", response_model=schemas.GroupMemberResponse)
 def add_member(group_id: str, member: schemas.GroupMemberCreate, current_user_id: str = Depends(get_current_user), db: Session = Depends(get_db)):
     get_group_or_404(group_id, db)
     require_group_admin(group_id, current_user_id, db)
-    normalized_user_id = member.user_id.strip().lower()
+    normalized_user_id = normalize_user_id(member.user_id)
     if not normalized_user_id:
         raise HTTPException(status_code=400, detail="El usuario es obligatorio.")
         
@@ -177,7 +231,7 @@ def get_members(group_id: str, current_user_id: str = Depends(get_current_user),
 def remove_member(group_id: str, user_id: str, current_user_id: str = Depends(get_current_user), db: Session = Depends(get_db)):
     get_group_or_404(group_id, db)
     require_group_admin(group_id, current_user_id, db)
-    normalized_user_id = user_id.strip().lower()
+    normalized_user_id = normalize_user_id(user_id)
     member = get_membership(group_id, normalized_user_id, db)
     if not member:
         raise HTTPException(status_code=404, detail="User is not a member")
@@ -190,6 +244,10 @@ def remove_member(group_id: str, user_id: str, current_user_id: str = Depends(ge
         if admin_count <= 1:
             raise HTTPException(status_code=400, detail="No puedes eliminar al único admin del grupo.")
 
+    db.query(models.ChannelMember).filter(
+        models.ChannelMember.group_id == group_id,
+        models.ChannelMember.user_id == normalized_user_id,
+    ).delete(synchronize_session=False)
     db.delete(member)
     db.commit()
     publisher.publish("member.removed", {
@@ -199,16 +257,112 @@ def remove_member(group_id: str, user_id: str, current_user_id: str = Depends(ge
     })
     return None
 
+@router.get("/{group_id}/channels", response_model=List[schemas.ChannelResponse])
+def get_channels(group_id: str, current_user_id: str = Depends(get_current_user), db: Session = Depends(get_db)):
+    get_group_or_404(group_id, db)
+    require_group_member(group_id, current_user_id, db)
+    return db.query(models.Channel).filter(models.Channel.group_id == group_id).all()
+
 @router.post("/{group_id}/channels", response_model=schemas.ChannelResponse, status_code=status.HTTP_201_CREATED)
 def create_channel(group_id: str, channel: schemas.ChannelCreate, current_user_id: str = Depends(get_current_user), db: Session = Depends(get_db)):
     get_group_or_404(group_id, db)
     require_group_admin(group_id, current_user_id, db)
+    name = channel.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="El nombre del canal no puede estar vacío.")
+
+    existing_channel = db.query(models.Channel).filter(
+        models.Channel.group_id == group_id,
+        models.Channel.name == name,
+    ).first()
+    if existing_channel:
+        raise HTTPException(status_code=400, detail="Ya existe un canal con ese nombre en el grupo.")
 
     db_channel = models.Channel(
         group_id=group_id,
-        name=channel.name
+        name=name
     )
     db.add(db_channel)
+    db.flush()
+
+    member_ids = []
+    for user_id in [current_user_id, *channel.member_ids]:
+        normalized_user_id = normalize_user_id(user_id)
+        if normalized_user_id and normalized_user_id not in member_ids:
+            member_ids.append(normalized_user_id)
+
+    for user_id in member_ids:
+        add_channel_member_record(group_id, db_channel.id, user_id, db)
+
     db.commit()
     db.refresh(db_channel)
+    publisher.publish("channel.created", {
+        "group_id": group_id,
+        "channel_id": db_channel.id,
+        "name": db_channel.name,
+        "member_ids": member_ids,
+        "actor_user_id": current_user_id,
+    })
     return db_channel
+
+@router.get("/{group_id}/channels/{channel_id}/members", response_model=List[schemas.ChannelMemberResponse])
+def get_channel_members(group_id: str, channel_id: str, current_user_id: str = Depends(get_current_user), db: Session = Depends(get_db)):
+    get_group_or_404(group_id, db)
+    get_channel_or_404(group_id, channel_id, db)
+    require_group_member(group_id, current_user_id, db)
+    return db.query(models.ChannelMember).filter(
+        models.ChannelMember.group_id == group_id,
+        models.ChannelMember.channel_id == channel_id,
+    ).all()
+
+@router.post("/{group_id}/channels/{channel_id}/members", response_model=schemas.ChannelMemberResponse, status_code=status.HTTP_201_CREATED)
+def add_channel_member(group_id: str, channel_id: str, member: schemas.ChannelMemberCreate, current_user_id: str = Depends(get_current_user), db: Session = Depends(get_db)):
+    get_group_or_404(group_id, db)
+    get_channel_or_404(group_id, channel_id, db)
+    require_group_admin(group_id, current_user_id, db)
+    normalized_user_id = require_channel_candidate(group_id, member.user_id, db)
+    existing_member = db.query(models.ChannelMember).filter(
+        models.ChannelMember.channel_id == channel_id,
+        models.ChannelMember.user_id == normalized_user_id,
+    ).first()
+    if existing_member:
+        raise HTTPException(status_code=400, detail="User is already a channel member")
+
+    channel_member = models.ChannelMember(
+        channel_id=channel_id,
+        group_id=group_id,
+        user_id=normalized_user_id,
+    )
+    db.add(channel_member)
+    db.commit()
+    db.refresh(channel_member)
+    publisher.publish("channel.member.added", {
+        "group_id": group_id,
+        "channel_id": channel_id,
+        "user_id": normalized_user_id,
+        "actor_user_id": current_user_id,
+    })
+    return channel_member
+
+@router.delete("/{group_id}/channels/{channel_id}/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_channel_member(group_id: str, channel_id: str, user_id: str, current_user_id: str = Depends(get_current_user), db: Session = Depends(get_db)):
+    get_group_or_404(group_id, db)
+    get_channel_or_404(group_id, channel_id, db)
+    require_group_admin(group_id, current_user_id, db)
+    normalized_user_id = normalize_user_id(user_id)
+    channel_member = db.query(models.ChannelMember).filter(
+        models.ChannelMember.channel_id == channel_id,
+        models.ChannelMember.user_id == normalized_user_id,
+    ).first()
+    if not channel_member:
+        raise HTTPException(status_code=404, detail="User is not a channel member")
+
+    db.delete(channel_member)
+    db.commit()
+    publisher.publish("channel.member.removed", {
+        "group_id": group_id,
+        "channel_id": channel_id,
+        "user_id": normalized_user_id,
+        "actor_user_id": current_user_id,
+    })
+    return None

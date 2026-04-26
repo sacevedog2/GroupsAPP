@@ -225,6 +225,12 @@ textarea:focus {
   color: var(--text);
 }
 
+.btn-danger {
+  border-color: rgba(255, 124, 139, 0.32);
+  background: rgba(255, 124, 139, 0.1);
+  color: var(--danger);
+}
+
 .btn-block {
   width: 100%;
 }
@@ -517,6 +523,66 @@ textarea:focus {
   align-items: end;
 }
 
+.group-channel-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.channel-list {
+  display: grid;
+  gap: 10px;
+}
+
+.section-subhead,
+.channel-row-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.section-subhead span,
+.channel-row-head small {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.channel-row {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid rgba(124, 156, 255, 0.14);
+  border-radius: 16px;
+  background: rgba(124, 156, 255, 0.045);
+}
+
+.channel-members {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.channel-member-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 7px 9px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
+
+.channel-add-member-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
 .member-row {
   display: flex;
   align-items: center;
@@ -571,6 +637,12 @@ textarea:focus {
   color: var(--danger);
 }
 
+.btn-channel-remove {
+  padding: 4px 7px;
+  color: var(--danger);
+  font-size: 0.72rem;
+}
+
 .member-empty {
   padding: 12px 14px;
 }
@@ -596,7 +668,7 @@ textarea:focus {
   cursor: pointer;
   display: grid;
   gap: 8px;
-  height: var(--conversation-preview-height);
+  min-height: var(--conversation-preview-height);
   overflow: hidden;
 }
 
@@ -605,16 +677,52 @@ textarea:focus {
   background: rgba(124, 156, 255, 0.12);
 }
 
+.conversation-channel {
+  min-height: 82px;
+  margin-left: 18px;
+  padding: 11px 12px;
+  gap: 6px;
+  border-color: rgba(124, 156, 255, 0.14);
+  background: rgba(124, 156, 255, 0.055);
+}
+
+.conversation-channel strong {
+  color: var(--brand-strong);
+  font-size: 0.86rem;
+  line-height: 1.15;
+}
+
+.conversation-channel small,
+.conversation-channel time {
+  font-size: 0.64rem;
+}
+
+.conversation-channel .kind-badge,
+.conversation-channel .presence-pill,
+.conversation-channel .unread-badge {
+  min-width: auto;
+  padding: 5px 8px;
+  font-size: 0.7rem;
+  line-height: 1;
+  white-space: nowrap;
+}
+
 .conversation-top,
 .conversation-bottom {
   display: flex;
   justify-content: space-between;
   gap: 10px;
   align-items: start;
+  min-width: 0;
+}
+
+.conversation-top > div {
+  min-width: 0;
 }
 
 .conversation-item strong {
   font-size: 0.96rem;
+  overflow-wrap: anywhere;
 }
 
 .conversation-item p,
@@ -955,6 +1063,8 @@ textarea:focus {
   }
 
   .group-add-member-form,
+  .group-channel-form,
+  .channel-add-member-form,
   .member-row,
   .member-actions {
     display: grid;

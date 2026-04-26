@@ -125,8 +125,10 @@ services:
     env_file:
       - ./services/messaging/.env.example # Usa el example como default
     environment:
-      # Sobrescribimos el host de rabbitmq para que apunte al contenedor compartido
-      - RABBITMQ_HOST=rabbitmq
+      # Valores locales para Compose. Los .env.example quedan listos para RDS/EKS.
+      - DATABASE_URL=sqlite+aiosqlite:///./data/messaging.db
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
+      - ATTACHMENT_ROOT=/app/data/attachments
     ports:
       - "8080:8080"
       - "50051:50051"
@@ -153,6 +155,7 @@ services:
     env_file:
       - ./services/notifications/.env.example
     environment:
+      - DATABASE_URL=sqlite+aiosqlite:///./data/notifications.db
       - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
     ports:
       - "8083:8083"

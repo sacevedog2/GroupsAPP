@@ -6,11 +6,11 @@ metadata:
     app: groupsapp-auth
 data:
   SERVICE_NAME: groupsapp-auth
-  ENVIRONMENT: prod
+  ENVIRONMENT: production
   API_HOST: 0.0.0.0
   API_PORT: "8081"
   GRPC_HOST: 0.0.0.0
-  GRPC_PORT: "50052"
+  GRPC_PORT: "50051"
   JWT_ISSUER: groupsapp-auth
   ACCESS_TOKEN_TTL_SECONDS: "3600"
   PASSWORD_PBKDF2_ITERATIONS: "310000"

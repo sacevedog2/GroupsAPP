@@ -12,6 +12,6 @@ COPY app ./app
 
 RUN python -m app.grpc.generator
 
-EXPOSE 8081 50052
+EXPOSE 8081 50051
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8081"]

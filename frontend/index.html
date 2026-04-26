@@ -177,6 +177,7 @@
                 <span id="groupDetailsCount" class="subtle-pill">0 miembros</span>
               </div>
               <p id="groupDetailsDescription" class="panel-copy"></p>
+              <p id="groupDetailsId" class="panel-copy"></p>
               <div id="groupAdminPanel" class="group-admin-panel hidden">
                 <form id="groupEditForm" class="stack">
                   <label>
@@ -201,7 +202,26 @@
                     Añadir
                   </button>
                 </form>
+
+                <form id="groupCreateChannelForm" class="group-channel-form">
+                  <label>
+                    Nuevo canal
+                    <input id="groupChannelName" placeholder="ej: general" />
+                  </label>
+                  <label>
+                    Miembros del canal
+                    <input id="groupChannelMembers" placeholder="ej: ana, carlos" />
+                  </label>
+                  <button id="btnCreateChannel" type="submit" class="btn btn-ghost">
+                    Crear canal
+                  </button>
+                </form>
+
+                <button id="btnDeleteGroup" type="button" class="btn btn-danger btn-block">
+                  Eliminar grupo
+                </button>
               </div>
+              <div id="groupDetailsChannels" class="channel-list"></div>
               <div id="groupDetailsMembers" class="member-list"></div>
             </section>
 

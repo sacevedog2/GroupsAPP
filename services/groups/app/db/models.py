@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, String, DateTime, ForeignKey, JSON, Enum
+from sqlalchemy import Column, String, DateTime, ForeignKey, JSON, Enum, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import enum
@@ -16,7 +16,7 @@ class RoleEnum(str, enum.Enum):
 class Group(Base):
     __tablename__ = "groups"
 
-    id = Column(String, primary_key=True, default=generate_uuid)
+    id = Column(String, primary_key=True, default=generate_uuid, unique=True, index=True)
     name = Column(String, nullable=False)
     description = Column(String, nullable=True)
     settings = Column(JSON, nullable=True, default={})
@@ -28,6 +28,7 @@ class Group(Base):
 
 class Channel(Base):
     __tablename__ = "channels"
+    __table_args__ = (UniqueConstraint("group_id", "name", name="uq_channel_group_name"),)
 
     id = Column(String, primary_key=True, default=generate_uuid)
     group_id = Column(String, ForeignKey("groups.id"), nullable=False)
@@ -36,6 +37,18 @@ class Channel(Base):
 
     # Relationships
     group = relationship("Group", back_populates="channels")
+    members = relationship("ChannelMember", back_populates="channel", cascade="all, delete-orphan")
+
+class ChannelMember(Base):
+    __tablename__ = "channel_members"
+
+    channel_id = Column(String, ForeignKey("channels.id"), primary_key=True)
+    user_id = Column(String, primary_key=True)
+    group_id = Column(String, ForeignKey("groups.id"), nullable=False)
+    added_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationships
+    channel = relationship("Channel", back_populates="members")
 
 class GroupMember(Base):
     __tablename__ = "group_members"

@@ -18,16 +18,31 @@ class GroupMemberResponse(GroupMemberBase):
         from_attributes = True
 
 # --- Channels ---
+class ChannelMemberBase(BaseModel):
+    user_id: str
+
+class ChannelMemberCreate(ChannelMemberBase):
+    pass
+
+class ChannelMemberResponse(ChannelMemberBase):
+    channel_id: str
+    group_id: str
+    added_at: datetime
+
+    class Config:
+        from_attributes = True
+
 class ChannelBase(BaseModel):
     name: str
 
 class ChannelCreate(ChannelBase):
-    pass
+    member_ids: List[str] = Field(default_factory=list)
 
 class ChannelResponse(ChannelBase):
     id: str
     group_id: str
     created_at: datetime
+    members: List[ChannelMemberResponse] = []
 
     class Config:
         from_attributes = True

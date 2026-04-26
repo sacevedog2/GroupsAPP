@@ -12,6 +12,6 @@ spec:
       port: 80
       targetPort: 8081
     - name: grpc
-      port: 50052
-      targetPort: 50052
+      port: 50051
+      targetPort: 50051
   type: ClusterIP

@@ -6,7 +6,7 @@ metadata:
     app: groupsapp-messaging
 data:
   SERVICE_NAME: groupsapp-messaging
-  ENVIRONMENT: prod
+  ENVIRONMENT: production
   API_HOST: 0.0.0.0
   API_PORT: "8080"
   GRPC_HOST: 0.0.0.0

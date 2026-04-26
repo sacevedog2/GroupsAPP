@@ -12,7 +12,6 @@ class GroupsInternalServicer(groups_pb2_grpc.GroupsInternalServicer):
     def CheckMembership(self, request, context):
         db = SessionLocal()
         try:
-            # We only support checking group scope here for simplicity
             if request.scope_type == "group":
                 member = db.query(models.GroupMember).filter(
                     models.GroupMember.group_id == request.scope_id,
@@ -20,6 +19,20 @@ class GroupsInternalServicer(groups_pb2_grpc.GroupsInternalServicer):
                 ).first()
                 if member:
                     return groups_pb2.CheckMembershipResponse(is_member=True, role=member.role)
+            if request.scope_type == "channel":
+                channel_member = db.query(models.ChannelMember).filter(
+                    models.ChannelMember.channel_id == request.scope_id,
+                    models.ChannelMember.user_id == request.user_id
+                ).first()
+                if channel_member:
+                    group_member = db.query(models.GroupMember).filter(
+                        models.GroupMember.group_id == channel_member.group_id,
+                        models.GroupMember.user_id == request.user_id
+                    ).first()
+                    return groups_pb2.CheckMembershipResponse(
+                        is_member=True,
+                        role=group_member.role if group_member else "member",
+                    )
             return groups_pb2.CheckMembershipResponse(is_member=False, role="")
         finally:
             db.close()

@@ -16,13 +16,13 @@ spec:
     spec:
       containers:
         - name: auth
-          image: <aws_account_id>.dkr.ecr.<region>.amazonaws.com/groupsapp-auth:latest
+          image: <aws_account_id>.dkr.ecr.<region>.amazonaws.com/auth:latest
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
               containerPort: 8081
             - name: grpc
-              containerPort: 50052
+              containerPort: 50051
           envFrom:
             - configMapRef:
                 name: auth-config

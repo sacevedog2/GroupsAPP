@@ -1,14 +1,14 @@
 const STORAGE_KEYS = {
   session: "groupsapp_session_v4",
-  settings: "groupsapp_settings_v4",
+  settings: "groupsapp_settings_v5",
   ui: "groupsapp_ui_v4",
 };
 
 const DEFAULT_SETTINGS = {
-  auth: "http://localhost:8082",
-  messaging: "http://localhost:8080",
-  groups: "http://localhost:8081",
-  notifications: "http://localhost:8083",
+  auth: "/api/auth",
+  messaging: "/api/messaging",
+  groups: "/api/groups",
+  notifications: "/api/notifications",
 };
 
 const POLL_MS = 4000;
@@ -26,6 +26,7 @@ const state = {
   messagesByConversation: {},
   usersById: {},
   groupMembersByGroup: {},
+  groupChannelsByGroup: {},
   notifications: [],
   unreadNotificationCount: 0,
   notificationSeenIds: {},
@@ -75,6 +76,8 @@ function cacheRefs() {
     "chatPresence",
     "groupDetailsPanel",
     "groupDetailsDescription",
+    "groupDetailsId",
+    "groupDetailsChannels",
     "groupDetailsMembers",
     "groupDetailsCount",
     "groupAdminPanel",
@@ -85,6 +88,11 @@ function cacheRefs() {
     "groupAddMemberForm",
     "groupAddMemberInput",
     "btnAddGroupMember",
+    "groupCreateChannelForm",
+    "groupChannelName",
+    "groupChannelMembers",
+    "btnCreateChannel",
+    "btnDeleteGroup",
     "messages",
     "composerForm",
     "messageInput",
@@ -340,22 +348,39 @@ function updateProfileHeader() {
 }
 
 function rebuildConversations() {
-  state.conversations = [...state.directConversations, ...state.groupConversations].sort(
-    (left, right) => {
-      const leftUnread = left.unread_count > 0 ? 1 : 0;
-      const rightUnread = right.unread_count > 0 ? 1 : 0;
-      if (leftUnread !== rightUnread) return rightUnread - leftUnread;
-      const leftTime = Date.parse(left.updated_at || "") || 0;
-      const rightTime = Date.parse(right.updated_at || "") || 0;
-      return rightTime - leftTime;
+  const byActivity = (left, right) => {
+    const leftUnread = left.unread_count > 0 ? 1 : 0;
+    const rightUnread = right.unread_count > 0 ? 1 : 0;
+    if (leftUnread !== rightUnread) return rightUnread - leftUnread;
+    const leftTime = Date.parse(left.updated_at || "") || 0;
+    const rightTime = Date.parse(right.updated_at || "") || 0;
+    return rightTime - leftTime;
+  };
+  const sortedDirect = [...state.directConversations].sort(byActivity);
+  const sortedGroups = [...state.groupConversations].sort((left, right) => {
+    return byActivity(left, right);
+  });
+  const groupedConversations = [];
+  for (const group of sortedGroups) {
+    groupedConversations.push(group);
+    const isExpanded =
+      state.selectedConversationKey === group.key ||
+      group.channels?.some((channel) => channel.key === state.selectedConversationKey);
+    if (isExpanded) {
+      groupedConversations.push(...(group.channels || []));
     }
-  );
+  }
+
+  state.conversations = [...sortedDirect, ...groupedConversations];
 }
 
 function getConversationLabel(conversation) {
   if (conversation.scope_type === "direct") {
     const profile = state.usersById[conversation.peer_user_id];
     return profile?.display_name || conversation.peer_user_id;
+  }
+  if (conversation.scope_type === "channel") {
+    return `#${conversation.title}`;
   }
   return conversation.title;
 }
@@ -372,10 +397,13 @@ function renderConversationList() {
   refs.conversationList.innerHTML = state.conversations
     .map((conversation) => {
       const active = conversation.key === state.selectedConversationKey ? "active" : "";
+      const itemClass = conversation.scope_type === "channel" ? "conversation-channel" : "";
       const label = getConversationLabel(conversation);
       const subtitle =
         conversation.scope_type === "direct"
           ? `@${conversation.peer_user_id}`
+          : conversation.scope_type === "channel"
+            ? conversation.group_title || "Canal del grupo"
           : "";
       const preview = conversation.preview || "Todavía no hay mensajes.";
       const pending = conversation.request_status === "pending";
@@ -392,7 +420,13 @@ function renderConversationList() {
           ? `<span class="kind-badge">${pendingLabel}</span>`
           : conversation.unread_count > 0
           ? `<span class="unread-badge">${unreadIcon}${conversation.unread_count}</span>`
-          : `<span class="kind-badge">${conversation.scope_type === "group" ? "grupo" : "directo"}</span>`;
+          : `<span class="kind-badge">${
+              conversation.scope_type === "group"
+                ? "grupo"
+                : conversation.scope_type === "channel"
+                  ? "canal"
+                  : "directo"
+            }</span>`;
       const presence =
         conversation.scope_type === "direct"
           ? pending
@@ -403,12 +437,18 @@ function renderConversationList() {
                 state.usersById[conversation.peer_user_id]?.is_online ? "online" : "offline"
               }</span>`
           : `<span class="presence-pill offline">${escapeHtml(
-              conversation.member_count ? `${conversation.member_count} miembros` : "grupo"
+              conversation.scope_type === "channel"
+                ? conversation.member_count
+                  ? `${conversation.member_count} miembros`
+                  : "canal"
+                : conversation.member_count
+                  ? `${conversation.member_count} miembros`
+                  : "grupo"
             )}</span>`;
 
       return `
         <li>
-          <article class="conversation-item ${active}" data-conversation-key="${escapeHtml(
+          <article class="conversation-item ${itemClass} ${active}" data-conversation-key="${escapeHtml(
             conversation.key
           )}">
             <div class="conversation-top">
@@ -471,6 +511,21 @@ function renderChatHeader() {
     refs.chatPresence.classList.toggle("online", !pending && Boolean(profile?.is_online));
     refs.chatPresence.classList.toggle("offline", !pending && !profile?.is_online);
     refs.btnAcceptDirect.classList.toggle("hidden", !pending || outgoingPending);
+    refs.btnGroupDetails.classList.add("hidden");
+    return;
+  }
+
+  if (conversation.scope_type === "channel") {
+    refs.chatTitle.textContent = `#${conversation.title}`;
+    refs.chatSubtitle.textContent = conversation.group_title
+      ? `Canal de ${conversation.group_title}`
+      : "Canal del grupo";
+    refs.chatPresence.textContent = "canal";
+    refs.chatPresence.classList.remove("hidden");
+    refs.chatPresence.classList.remove("pending");
+    refs.chatPresence.classList.remove("online");
+    refs.chatPresence.classList.add("offline");
+    refs.btnAcceptDirect.classList.add("hidden");
     refs.btnGroupDetails.classList.add("hidden");
     return;
   }
@@ -583,9 +638,12 @@ function getNotificationContextLabel(notification) {
   const conversation = getConversationForNotification(notification);
   if (conversation) {
     const label = getConversationLabel(conversation);
-    return conversation.scope_type === "group" ? `Grupo: ${label}` : `Chat: ${label}`;
+    if (conversation.scope_type === "group") return `Grupo: ${label}`;
+    if (conversation.scope_type === "channel") return `Canal: ${label}`;
+    return `Chat: ${label}`;
   }
   if (notification.scope_type === "group") return "Grupo";
+  if (notification.scope_type === "channel") return "Canal";
   if (notification.scope_type === "direct") return "Chat directo";
   return "Conversación";
 }
@@ -701,6 +759,7 @@ function renderGroupDetails() {
     conversation.subtitle && conversation.subtitle !== "Grupo"
       ? conversation.subtitle
       : "Este grupo no tiene descripción.";
+  refs.groupDetailsId.textContent = `ID único del grupo: ${conversation.scope_id}`;
   refs.groupDetailsCount.textContent = `${members.length} ${
     members.length === 1 ? "miembro" : "miembros"
   }`;
@@ -714,6 +773,66 @@ function renderGroupDetails() {
         conversation.subtitle && conversation.subtitle !== "Grupo" ? conversation.subtitle : "";
     }
   }
+
+  const channels = state.groupChannelsByGroup[conversation.scope_id] || [];
+  refs.groupDetailsChannels.innerHTML = `
+    <div class="section-subhead">
+      <strong>Canales</strong>
+      <span>${channels.length} ${channels.length === 1 ? "canal" : "canales"}</span>
+    </div>
+    ${
+      channels.length
+        ? channels
+            .map((channel) => {
+              const channelMembers = Array.isArray(channel.members) ? channel.members : [];
+              const memberChips = channelMembers.length
+                ? channelMembers
+                    .map((member) => {
+                      const profile = state.usersById[member.user_id];
+                      const label = profile?.display_name || member.user_id;
+                      const removeButton = isAdmin
+                        ? `<button type="button" class="btn btn-ghost btn-channel-remove" data-channel-id="${escapeHtml(
+                            channel.id
+                          )}" data-channel-remove-user="${escapeHtml(member.user_id)}">Quitar</button>`
+                        : "";
+                      return `
+                        <span class="channel-member-chip">
+                          @${escapeHtml(label)}
+                          ${removeButton}
+                        </span>
+                      `;
+                    })
+                    .join("")
+                : '<span class="member-empty">Sin miembros asignados.</span>';
+              const addForm = isAdmin
+                ? `
+                  <form class="channel-add-member-form" data-channel-add-form="${escapeHtml(
+                    channel.id
+                  )}">
+                    <input data-channel-add-input="${escapeHtml(
+                      channel.id
+                    )}" placeholder="Añadir usuario al canal" />
+                    <button type="submit" class="btn btn-ghost">Añadir</button>
+                  </form>
+                `
+                : "";
+              return `
+                <article class="channel-row">
+                  <div class="channel-row-head">
+                    <strong>#${escapeHtml(channel.name)}</strong>
+                    <small>${channelMembers.length} ${
+                channelMembers.length === 1 ? "miembro" : "miembros"
+              }</small>
+                  </div>
+                  <div class="channel-members">${memberChips}</div>
+                  ${addForm}
+                </article>
+              `;
+            })
+            .join("")
+        : '<div class="member-empty">Este grupo todavía no tiene canales.</div>'
+    }
+  `;
 
   if (!members.length) {
     refs.groupDetailsMembers.innerHTML =
@@ -999,11 +1118,22 @@ async function fetchGroupMembers(groupId) {
 }
 
 async function loadGroupDetails(groupId) {
-  const members = await fetchGroupMembers(groupId);
+  const detail = await request(`${state.settings.groups}/v1/groups/${groupId}`);
+  const members = Array.isArray(detail.members) ? detail.members : [];
+  const channels = Array.isArray(detail.channels) ? detail.channels : [];
+  state.groupMembersByGroup[groupId] = members;
+  state.groupChannelsByGroup[groupId] = channels;
   await Promise.allSettled(
-    members.map((member) => fetchUserProfile(member.user_id))
+    [
+      ...members.map((member) => member.user_id),
+      ...channels.flatMap((channel) =>
+        Array.isArray(channel.members)
+          ? channel.members.map((member) => member.user_id)
+          : []
+      ),
+    ].map((userId) => fetchUserProfile(userId))
   );
-  return members;
+  return detail;
 }
 
 function getGroupPreview(group) {
@@ -1017,11 +1147,29 @@ function getGroupPreview(group) {
   );
 }
 
+function getChannelPreview(channel) {
+  const key = conversationKey("channel", channel.id);
+  const cachedMessages = state.messagesByConversation[key] || [];
+  const lastMessage = cachedMessages[cachedMessages.length - 1];
+  return (
+    lastMessage?.body ||
+    getAttachmentPreviewLabel(lastMessage) ||
+    "Canal listo para conversar."
+  );
+}
+
 function getGroupUpdatedAt(group) {
   const key = conversationKey("group", group.id);
   const cachedMessages = state.messagesByConversation[key] || [];
   const lastMessage = cachedMessages[cachedMessages.length - 1];
   return lastMessage?.created_at || group.created_at;
+}
+
+function getChannelUpdatedAt(channel) {
+  const key = conversationKey("channel", channel.id);
+  const cachedMessages = state.messagesByConversation[key] || [];
+  const lastMessage = cachedMessages[cachedMessages.length - 1];
+  return lastMessage?.created_at || channel.created_at;
 }
 
 async function fetchGroups() {
@@ -1033,9 +1181,14 @@ async function fetchGroups() {
   state.groupConversations = await Promise.all(
     groups.map(async (group) => {
       const existingMembers = state.groupMembersByGroup[group.id];
-      const members = Array.isArray(existingMembers)
-        ? existingMembers
-        : await fetchGroupMembers(group.id).catch(() => []);
+      const existingChannels = state.groupChannelsByGroup[group.id];
+      let members = Array.isArray(existingMembers) ? existingMembers : [];
+      let channels = Array.isArray(existingChannels) ? existingChannels : [];
+      if (!Array.isArray(existingMembers) || !Array.isArray(existingChannels)) {
+        const detail = await loadGroupDetails(group.id).catch(() => null);
+        members = Array.isArray(detail?.members) ? detail.members : members;
+        channels = Array.isArray(detail?.channels) ? detail.channels : channels;
+      }
 
       return {
         key: conversationKey("group", group.id),
@@ -1047,6 +1200,25 @@ async function fetchGroups() {
         unread_count: getUnreadNotificationsForScope("group", group.id).length,
         member_count: Array.isArray(members) ? members.length : 0,
         updated_at: getGroupUpdatedAt(group),
+        channels: channels
+          .filter((channel) =>
+            (channel.members || []).some((member) => member.user_id === state.user.user_id)
+          )
+          .sort((left, right) => left.name.localeCompare(right.name))
+          .map((channel) => ({
+            key: conversationKey("channel", channel.id),
+            scope_type: "channel",
+            scope_id: channel.id,
+            group_id: group.id,
+            group_title: group.name,
+            title: channel.name,
+            subtitle: group.name,
+            preview: getChannelPreview(channel),
+            unread_count: getUnreadNotificationsForScope("channel", channel.id).length,
+            member_count: Array.isArray(channel.members) ? channel.members.length : 0,
+            members: Array.isArray(channel.members) ? channel.members : [],
+            updated_at: getChannelUpdatedAt(channel),
+          })),
       };
     })
   );
@@ -1226,6 +1398,97 @@ async function removeMemberFromSelectedGroup(userId) {
   renderApp();
 }
 
+async function createChannelInSelectedGroup() {
+  const conversation = getSelectedGroupOrThrow();
+  const name = refs.groupChannelName.value.trim();
+  const memberIds = parseCommaList(refs.groupChannelMembers.value).filter(
+    (userId) => userId !== state.user.user_id
+  );
+  if (!name) {
+    throw new Error("Escribe un nombre para el canal.");
+  }
+
+  const groupMembers = new Set(
+    (state.groupMembersByGroup[conversation.scope_id] || []).map((member) => member.user_id)
+  );
+  for (const userId of memberIds) {
+    if (!groupMembers.has(userId)) {
+      throw new Error(`@${userId} debe pertenecer al grupo antes de entrar al canal.`);
+    }
+  }
+
+  await request(`${state.settings.groups}/v1/groups/${conversation.scope_id}/channels`, {
+    method: "POST",
+    body: JSON.stringify({
+      name,
+      member_ids: memberIds,
+    }),
+  });
+  refs.groupChannelName.value = "";
+  refs.groupChannelMembers.value = "";
+  showToast(`Canal #${name} creado`, "success");
+  await loadGroupDetails(conversation.scope_id);
+  await fetchGroups();
+  renderApp();
+}
+
+async function addMemberToChannel(channelId, userId) {
+  const conversation = getSelectedGroupOrThrow();
+  const normalizedUserId = userId.trim().toLowerCase();
+  if (!normalizedUserId) {
+    throw new Error("Escribe el usuario que quieres añadir al canal.");
+  }
+
+  await request(
+    `${state.settings.groups}/v1/groups/${conversation.scope_id}/channels/${encodeURIComponent(
+      channelId
+    )}/members`,
+    {
+      method: "POST",
+      body: JSON.stringify({ user_id: normalizedUserId }),
+    }
+  );
+  showToast(`@${normalizedUserId} fue añadido al canal`, "success");
+  await loadGroupDetails(conversation.scope_id);
+  await fetchGroups();
+  renderApp();
+}
+
+async function removeMemberFromChannel(channelId, userId) {
+  const conversation = getSelectedGroupOrThrow();
+  const normalizedUserId = userId.trim().toLowerCase();
+  if (!normalizedUserId) return;
+  await request(
+    `${state.settings.groups}/v1/groups/${conversation.scope_id}/channels/${encodeURIComponent(
+      channelId
+    )}/members/${encodeURIComponent(normalizedUserId)}`,
+    { method: "DELETE" }
+  );
+  showToast(`@${normalizedUserId} fue eliminado del canal`, "info");
+  await loadGroupDetails(conversation.scope_id);
+  await fetchGroups();
+  renderApp();
+}
+
+async function deleteSelectedGroup() {
+  const conversation = getSelectedGroupOrThrow();
+  const confirmed = window.confirm(
+    `¿Eliminar el grupo "${conversation.title}"? Esta acción no se puede deshacer.`
+  );
+  if (!confirmed) return;
+
+  await request(`${state.settings.groups}/v1/groups/${conversation.scope_id}`, {
+    method: "DELETE",
+  });
+  showToast(`Grupo "${conversation.title}" eliminado`, "info");
+  delete state.groupMembersByGroup[conversation.scope_id];
+  delete state.groupChannelsByGroup[conversation.scope_id];
+  state.groupDetailsOpen = false;
+  state.selectedConversationKey = "";
+  persistUi();
+  await refreshWorkspace({ refreshSelectedMessages: false });
+}
+
 async function startDirectChatFromGroupMember(userId) {
   const normalizedUserId = userId.trim().toLowerCase();
   if (!normalizedUserId) return;
@@ -1292,10 +1555,12 @@ async function fetchMessages(conversationKeyValue, options = {}) {
 
   state.messagesByConversation[conversationKeyValue] = items;
 
-  if (conversation.scope_type === "group") {
-    const memberIds = new Set(
-      (state.groupMembersByGroup[conversation.scope_id] || []).map((member) => member.user_id)
-    );
+  if (conversation.scope_type === "group" || conversation.scope_type === "channel") {
+    const baseMembers =
+      conversation.scope_type === "channel"
+        ? conversation.members || []
+        : state.groupMembersByGroup[conversation.scope_id] || [];
+    const memberIds = new Set(baseMembers.map((member) => member.user_id));
     for (const message of items) {
       if (message.sender_id && !state.usersById[message.sender_id] && message.sender_id !== state.user.user_id) {
         memberIds.add(message.sender_id);
@@ -1374,6 +1639,10 @@ async function sendMessage() {
   let participantIds = [];
   if (conversation.scope_type === "direct") {
     participantIds = [conversation.peer_user_id];
+  } else if (conversation.scope_type === "channel") {
+    participantIds = (conversation.members || [])
+      .map((member) => member.user_id)
+      .filter((userId) => userId !== state.user.user_id);
   } else {
     const members =
       state.groupMembersByGroup[conversation.scope_id] ||
@@ -1460,6 +1729,7 @@ async function logout() {
   state.messagesByConversation = {};
   state.usersById = {};
   state.groupMembersByGroup = {};
+  state.groupChannelsByGroup = {};
   state.notifications = [];
   state.unreadNotificationCount = 0;
   state.notificationSeenIds = {};
@@ -1558,6 +1828,58 @@ function bindEvents() {
     await runWithBusyState(refs.btnAddGroupMember, "Añadiendo...", async () => {
       try {
         await addMemberToSelectedGroup();
+      } catch (error) {
+        showToast(String(error), "error");
+      }
+    });
+  });
+
+  refs.groupCreateChannelForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await runWithBusyState(refs.btnCreateChannel, "Creando...", async () => {
+      try {
+        await createChannelInSelectedGroup();
+      } catch (error) {
+        showToast(String(error), "error");
+      }
+    });
+  });
+
+  refs.btnDeleteGroup.addEventListener("click", async () => {
+    await runWithBusyState(refs.btnDeleteGroup, "Eliminando...", async () => {
+      try {
+        await deleteSelectedGroup();
+      } catch (error) {
+        showToast(String(error), "error");
+      }
+    });
+  });
+
+  refs.groupDetailsChannels.addEventListener("submit", async (event) => {
+    const form = event.target.closest("[data-channel-add-form]");
+    if (!form) return;
+    event.preventDefault();
+    const channelId = form.getAttribute("data-channel-add-form") || "";
+    const input = form.querySelector("[data-channel-add-input]");
+    const button = form.querySelector("button");
+    await runWithBusyState(button, "Añadiendo...", async () => {
+      try {
+        await addMemberToChannel(channelId, input?.value || "");
+      } catch (error) {
+        showToast(String(error), "error");
+      }
+    });
+  });
+
+  refs.groupDetailsChannels.addEventListener("click", async (event) => {
+    const removeButton = event.target.closest("[data-channel-remove-user]");
+    if (!removeButton) return;
+    await runWithBusyState(removeButton, "Quitando...", async () => {
+      try {
+        await removeMemberFromChannel(
+          removeButton.getAttribute("data-channel-id") || "",
+          removeButton.getAttribute("data-channel-remove-user") || ""
+        );
       } catch (error) {
         showToast(String(error), "error");
       }
