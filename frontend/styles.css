@@ -481,6 +481,10 @@ textarea:focus {
 .group-details-panel {
   display: grid;
   gap: 14px;
+  max-height: clamp(210px, 32vh, 340px);
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .group-details-panel.hidden {
@@ -490,8 +494,27 @@ textarea:focus {
 .member-list {
   display: grid;
   gap: 10px;
-  max-height: 260px;
-  overflow: auto;
+  min-height: 0;
+}
+
+.group-admin-panel {
+  display: grid;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid rgba(124, 156, 255, 0.16);
+  border-radius: 18px;
+  background: rgba(124, 156, 255, 0.06);
+}
+
+.group-admin-panel.hidden {
+  display: none !important;
+}
+
+.group-add-member-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
 }
 
 .member-row {
@@ -524,6 +547,28 @@ textarea:focus {
 .member-empty {
   color: var(--muted);
   font-size: 0.84rem;
+}
+
+.member-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex: 0 0 auto;
+}
+
+.btn-member-direct,
+.btn-member-remove {
+  padding: 7px 10px;
+  font-size: 0.8rem;
+}
+
+.btn-member-direct {
+  color: var(--brand-strong);
+}
+
+.btn-member-remove {
+  font-size: 0.8rem;
+  color: var(--danger);
 }
 
 .member-empty {
@@ -645,6 +690,7 @@ textarea:focus {
 .chat-panel {
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
+  height: 100%;
   min-height: 0;
   overflow: hidden;
 }
@@ -654,6 +700,7 @@ textarea:focus {
   gap: 12px;
   align-content: start;
   overflow: auto;
+  overscroll-behavior: contain;
   min-height: 0;
   padding-right: 4px;
 }
@@ -905,6 +952,13 @@ textarea:focus {
 
   .message {
     max-width: 100%;
+  }
+
+  .group-add-member-form,
+  .member-row,
+  .member-actions {
+    display: grid;
+    grid-template-columns: 1fr;
   }
 
   .chat-panel {

@@ -10,6 +10,30 @@ from app.api.deps import get_current_user
 
 router = APIRouter()
 
+def get_group_or_404(group_id: str, db: Session) -> models.Group:
+    group = db.query(models.Group).filter(models.Group.id == group_id).first()
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+    return group
+
+def get_membership(group_id: str, user_id: str, db: Session) -> models.GroupMember | None:
+    return db.query(models.GroupMember).filter(
+        models.GroupMember.group_id == group_id,
+        models.GroupMember.user_id == user_id,
+    ).first()
+
+def require_group_member(group_id: str, user_id: str, db: Session) -> models.GroupMember:
+    membership = get_membership(group_id, user_id, db)
+    if not membership:
+        raise HTTPException(status_code=403, detail="Debes pertenecer al grupo.")
+    return membership
+
+def require_group_admin(group_id: str, user_id: str, db: Session) -> models.GroupMember:
+    membership = require_group_member(group_id, user_id, db)
+    if membership.role != models.RoleEnum.ADMIN.value:
+        raise HTTPException(status_code=403, detail="Solo el admin del grupo puede hacer esta acción.")
+    return membership
+
 @router.get("/", response_model=List[schemas.GroupResponse])
 def list_groups(
     current_user_id: str = Depends(get_current_user),
@@ -35,7 +59,7 @@ def create_group(group: schemas.GroupCreate, current_user_id: str = Depends(get_
     if len(member_ids) < 2:
         raise HTTPException(
             status_code=400,
-            detail="Para crear un grupo debes agregar al menos otros 2 usuarios.",
+            detail="Para crear un grupo debes agregar al menos 2 usuarios.",
         )
 
     db_group = models.Group(
@@ -81,28 +105,54 @@ def create_group(group: schemas.GroupCreate, current_user_id: str = Depends(get_
 
 @router.get("/{group_id}", response_model=schemas.GroupDetailResponse)
 def get_group(group_id: str, current_user_id: str = Depends(get_current_user), db: Session = Depends(get_db)):
-    group = db.query(models.Group).filter(models.Group.id == group_id).first()
-    if not group:
-        raise HTTPException(status_code=404, detail="Group not found")
+    group = get_group_or_404(group_id, db)
+    require_group_member(group_id, current_user_id, db)
+    return group
+
+@router.patch("/{group_id}", response_model=schemas.GroupResponse)
+def update_group(group_id: str, group_update: schemas.GroupUpdate, current_user_id: str = Depends(get_current_user), db: Session = Depends(get_db)):
+    group = get_group_or_404(group_id, db)
+    require_group_admin(group_id, current_user_id, db)
+
+    if group_update.name is not None:
+        name = group_update.name.strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="El nombre del grupo no puede estar vacío.")
+        group.name = name
+    if group_update.description is not None:
+        group.description = group_update.description.strip() or None
+    if group_update.settings is not None:
+        group.settings = group_update.settings
+
+    db.commit()
+    db.refresh(group)
+    publisher.publish("group.updated", {
+        "group_id": group.id,
+        "name": group.name,
+        "description": group.description,
+        "actor_user_id": current_user_id,
+    })
     return group
 
 @router.post("/{group_id}/members", response_model=schemas.GroupMemberResponse)
 def add_member(group_id: str, member: schemas.GroupMemberCreate, current_user_id: str = Depends(get_current_user), db: Session = Depends(get_db)):
-    group = db.query(models.Group).filter(models.Group.id == group_id).first()
-    if not group:
-        raise HTTPException(status_code=404, detail="Group not found")
+    get_group_or_404(group_id, db)
+    require_group_admin(group_id, current_user_id, db)
+    normalized_user_id = member.user_id.strip().lower()
+    if not normalized_user_id:
+        raise HTTPException(status_code=400, detail="El usuario es obligatorio.")
         
     db_member = db.query(models.GroupMember).filter(
         models.GroupMember.group_id == group_id,
-        models.GroupMember.user_id == member.user_id
+        models.GroupMember.user_id == normalized_user_id
     ).first()
     if db_member:
         raise HTTPException(status_code=400, detail="User is already a member")
 
     new_member = models.GroupMember(
         group_id=group_id,
-        user_id=member.user_id,
-        role=member.role
+        user_id=normalized_user_id,
+        role=models.RoleEnum.MEMBER.value
     )
     db.add(new_member)
     db.commit()
@@ -118,14 +168,41 @@ def add_member(group_id: str, member: schemas.GroupMemberCreate, current_user_id
 
 @router.get("/{group_id}/members", response_model=List[schemas.GroupMemberResponse])
 def get_members(group_id: str, current_user_id: str = Depends(get_current_user), db: Session = Depends(get_db)):
+    get_group_or_404(group_id, db)
+    require_group_member(group_id, current_user_id, db)
     members = db.query(models.GroupMember).filter(models.GroupMember.group_id == group_id).all()
     return members
 
+@router.delete("/{group_id}/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_member(group_id: str, user_id: str, current_user_id: str = Depends(get_current_user), db: Session = Depends(get_db)):
+    get_group_or_404(group_id, db)
+    require_group_admin(group_id, current_user_id, db)
+    normalized_user_id = user_id.strip().lower()
+    member = get_membership(group_id, normalized_user_id, db)
+    if not member:
+        raise HTTPException(status_code=404, detail="User is not a member")
+
+    if member.role == models.RoleEnum.ADMIN.value:
+        admin_count = db.query(models.GroupMember).filter(
+            models.GroupMember.group_id == group_id,
+            models.GroupMember.role == models.RoleEnum.ADMIN.value,
+        ).count()
+        if admin_count <= 1:
+            raise HTTPException(status_code=400, detail="No puedes eliminar al único admin del grupo.")
+
+    db.delete(member)
+    db.commit()
+    publisher.publish("member.removed", {
+        "group_id": group_id,
+        "user_id": normalized_user_id,
+        "actor_user_id": current_user_id,
+    })
+    return None
+
 @router.post("/{group_id}/channels", response_model=schemas.ChannelResponse, status_code=status.HTTP_201_CREATED)
 def create_channel(group_id: str, channel: schemas.ChannelCreate, current_user_id: str = Depends(get_current_user), db: Session = Depends(get_db)):
-    group = db.query(models.Group).filter(models.Group.id == group_id).first()
-    if not group:
-        raise HTTPException(status_code=404, detail="Group not found")
+    get_group_or_404(group_id, db)
+    require_group_admin(group_id, current_user_id, db)
 
     db_channel = models.Channel(
         group_id=group_id,

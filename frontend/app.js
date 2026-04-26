@@ -77,6 +77,14 @@ function cacheRefs() {
     "groupDetailsDescription",
     "groupDetailsMembers",
     "groupDetailsCount",
+    "groupAdminPanel",
+    "groupEditForm",
+    "groupEditName",
+    "groupEditDescription",
+    "btnUpdateGroup",
+    "groupAddMemberForm",
+    "groupAddMemberInput",
+    "btnAddGroupMember",
     "messages",
     "composerForm",
     "messageInput",
@@ -681,9 +689,14 @@ function renderGroupDetails() {
     state.groupDetailsOpen && conversation && conversation.scope_type === "group"
   );
   refs.groupDetailsPanel.classList.toggle("hidden", !visible);
-  if (!visible) return;
+  if (!visible) {
+    refs.groupAdminPanel.classList.add("hidden");
+    return;
+  }
 
   const members = state.groupMembersByGroup[conversation.scope_id] || [];
+  const currentMembership = members.find((member) => member.user_id === state.user.user_id);
+  const isAdmin = currentMembership?.role === "admin";
   refs.groupDetailsDescription.textContent =
     conversation.subtitle && conversation.subtitle !== "Grupo"
       ? conversation.subtitle
@@ -691,6 +704,16 @@ function renderGroupDetails() {
   refs.groupDetailsCount.textContent = `${members.length} ${
     members.length === 1 ? "miembro" : "miembros"
   }`;
+  refs.groupAdminPanel.classList.toggle("hidden", !isAdmin);
+  if (isAdmin) {
+    if (document.activeElement !== refs.groupEditName) {
+      refs.groupEditName.value = conversation.title || "";
+    }
+    if (document.activeElement !== refs.groupEditDescription) {
+      refs.groupEditDescription.value =
+        conversation.subtitle && conversation.subtitle !== "Grupo" ? conversation.subtitle : "";
+    }
+  }
 
   if (!members.length) {
     refs.groupDetailsMembers.innerHTML =
@@ -706,15 +729,30 @@ function renderGroupDetails() {
       const name = isSelf
         ? profile?.display_name || "Tú"
         : profile?.display_name || member.user_id;
+      const removeButton =
+        isAdmin && !isSelf
+          ? `<button type="button" class="btn btn-ghost btn-member-remove" data-remove-user="${escapeHtml(
+              member.user_id
+            )}">Eliminar</button>`
+          : "";
+      const directButton = !isSelf
+        ? `<button type="button" class="btn btn-ghost btn-member-direct" data-direct-user="${escapeHtml(
+            member.user_id
+          )}">Chat directo</button>`
+        : "";
       return `
         <article class="member-row">
           <div>
             <strong>${escapeHtml(name)}</strong>
             <small>@${escapeHtml(member.user_id)} · ${escapeHtml(member.role || "member")}</small>
           </div>
-          <span class="presence-pill ${online ? "online" : "offline"}">
-            ${online ? "online" : "offline"}
-          </span>
+          <div class="member-actions">
+            <span class="presence-pill ${online ? "online" : "offline"}">
+              ${online ? "online" : "offline"}
+            </span>
+            ${directButton}
+            ${removeButton}
+          </div>
         </article>
       `;
     })
@@ -1118,6 +1156,84 @@ async function toggleSelectedGroupDetails() {
   renderApp();
 }
 
+function getSelectedGroupOrThrow() {
+  const conversation = getSelectedConversation();
+  if (!conversation || conversation.scope_type !== "group") {
+    throw new Error("Selecciona un grupo.");
+  }
+  return conversation;
+}
+
+async function updateSelectedGroup() {
+  const conversation = getSelectedGroupOrThrow();
+  const name = refs.groupEditName.value.trim();
+  const description = refs.groupEditDescription.value.trim();
+  if (!name) {
+    throw new Error("El nombre del grupo no puede estar vacío.");
+  }
+
+  await request(`${state.settings.groups}/v1/groups/${conversation.scope_id}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      name,
+      description,
+    }),
+  });
+  showToast("Grupo actualizado", "success");
+  await fetchGroups();
+  await loadGroupDetails(conversation.scope_id);
+  renderApp();
+}
+
+async function addMemberToSelectedGroup() {
+  const conversation = getSelectedGroupOrThrow();
+  const userId = refs.groupAddMemberInput.value.trim().toLowerCase();
+  if (!userId) {
+    throw new Error("Escribe el user ID que quieres añadir.");
+  }
+  if (userId === state.user.user_id) {
+    throw new Error("Ya perteneces a este grupo.");
+  }
+
+  await fetchUserProfile(userId);
+  await request(`${state.settings.groups}/v1/groups/${conversation.scope_id}/members`, {
+    method: "POST",
+    body: JSON.stringify({
+      user_id: userId,
+      role: "member",
+    }),
+  });
+  refs.groupAddMemberInput.value = "";
+  showToast(`@${userId} fue añadido al grupo`, "success");
+  await fetchGroups();
+  await loadGroupDetails(conversation.scope_id);
+  renderApp();
+}
+
+async function removeMemberFromSelectedGroup(userId) {
+  const conversation = getSelectedGroupOrThrow();
+  const normalizedUserId = userId.trim().toLowerCase();
+  if (!normalizedUserId) return;
+  await request(
+    `${state.settings.groups}/v1/groups/${conversation.scope_id}/members/${encodeURIComponent(
+      normalizedUserId
+    )}`,
+    { method: "DELETE" }
+  );
+  showToast(`@${normalizedUserId} fue eliminado del grupo`, "info");
+  await fetchGroups();
+  await loadGroupDetails(conversation.scope_id);
+  renderApp();
+}
+
+async function startDirectChatFromGroupMember(userId) {
+  const normalizedUserId = userId.trim().toLowerCase();
+  if (!normalizedUserId) return;
+  await openDirectConversation(normalizedUserId);
+  state.groupDetailsOpen = false;
+  renderApp();
+}
+
 async function createGroupConversation() {
   const name = refs.groupName.value.trim();
   if (!name) {
@@ -1420,6 +1536,54 @@ function bindEvents() {
     await runWithBusyState(refs.btnCreateGroup, "Creando...", async () => {
       try {
         await createGroupConversation();
+      } catch (error) {
+        showToast(String(error), "error");
+      }
+    });
+  });
+
+  refs.groupEditForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await runWithBusyState(refs.btnUpdateGroup, "Guardando...", async () => {
+      try {
+        await updateSelectedGroup();
+      } catch (error) {
+        showToast(String(error), "error");
+      }
+    });
+  });
+
+  refs.groupAddMemberForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await runWithBusyState(refs.btnAddGroupMember, "Añadiendo...", async () => {
+      try {
+        await addMemberToSelectedGroup();
+      } catch (error) {
+        showToast(String(error), "error");
+      }
+    });
+  });
+
+  refs.groupDetailsMembers.addEventListener("click", async (event) => {
+    const directButton = event.target.closest("[data-direct-user]");
+    if (directButton) {
+      await runWithBusyState(directButton, "Abriendo...", async () => {
+        try {
+          await startDirectChatFromGroupMember(
+            directButton.getAttribute("data-direct-user") || ""
+          );
+        } catch (error) {
+          showToast(String(error), "error");
+        }
+      });
+      return;
+    }
+
+    const removeButton = event.target.closest("[data-remove-user]");
+    if (!removeButton) return;
+    await runWithBusyState(removeButton, "Eliminando...", async () => {
+      try {
+        await removeMemberFromSelectedGroup(removeButton.getAttribute("data-remove-user") || "");
       } catch (error) {
         showToast(String(error), "error");
       }

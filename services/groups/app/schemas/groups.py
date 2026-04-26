@@ -41,6 +41,11 @@ class GroupBase(BaseModel):
 class GroupCreate(GroupBase):
     member_ids: List[str] = Field(default_factory=list)
 
+class GroupUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    settings: Optional[Dict[str, Any]] = None
+
 class GroupResponse(GroupBase):
     id: str
     created_at: datetime

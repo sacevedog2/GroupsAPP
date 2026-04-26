@@ -177,6 +177,31 @@
                 <span id="groupDetailsCount" class="subtle-pill">0 miembros</span>
               </div>
               <p id="groupDetailsDescription" class="panel-copy"></p>
+              <div id="groupAdminPanel" class="group-admin-panel hidden">
+                <form id="groupEditForm" class="stack">
+                  <label>
+                    Nombre del grupo
+                    <input id="groupEditName" placeholder="Nombre del grupo" />
+                  </label>
+                  <label>
+                    Descripción
+                    <input id="groupEditDescription" placeholder="Descripción del grupo" />
+                  </label>
+                  <button id="btnUpdateGroup" type="submit" class="btn btn-primary btn-block">
+                    Guardar cambios
+                  </button>
+                </form>
+
+                <form id="groupAddMemberForm" class="group-add-member-form">
+                  <label>
+                    Añadir usuario
+                    <input id="groupAddMemberInput" placeholder="ej: maria.dev" />
+                  </label>
+                  <button id="btnAddGroupMember" type="submit" class="btn btn-ghost">
+                    Añadir
+                  </button>
+                </form>
+              </div>
               <div id="groupDetailsMembers" class="member-list"></div>
             </section>
 
