@@ -5,6 +5,8 @@ metadata:
 spec:
   scheme: internet-facing
   ipAddressType: ipv4
+  certificateARNs:
+    - arn:aws:acm:us-east-1:992646667898:certificate/2f5f99cf-5ea2-49a9-938f-ae8c0d0603ef
   subnets:
     ids:
       - subnet-0106505a4b096064e
@@ -29,7 +31,8 @@ metadata:
 spec:
   ingressClassName: alb
   rules:
-    - http:
+    - host: app.licitdata.online
+      http:
         paths:
           - path: /
             pathType: Prefix
