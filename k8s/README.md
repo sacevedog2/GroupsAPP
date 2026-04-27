@@ -1,6 +1,6 @@
 # GroupsApp Kubernetes Deployment
 
-Manifiestos de producción para EKS.
+Manifiestos de produccion para EKS con EKS Auto Mode.
 
 ## Aplicar
 
@@ -10,7 +10,7 @@ kubectl apply -f k8s/
 
 ## Secrets requeridos
 
-Ya se crean fuera del repo para no versionar credenciales:
+Se crean fuera del repo para no versionar credenciales:
 
 - `auth-db-secret`
 - `groups-db-secret`
@@ -24,9 +24,11 @@ Las URLs de PostgreSQL usan SSL:
 - Servicios async (`auth`, `messaging`, `notifications`): `?ssl=require`
 - Servicio sync (`groups`): `?sslmode=require`
 
-## Entrada pública
+## Entrada publica
 
-El Ingress `groupsapp-alb` apunta al pod NGINX `groupsapp-api-gateway`.
+El Ingress `groupsapp-alb` usa `IngressClassParams` de EKS Auto Mode y crea un ALB publico.
+El ALB apunta al servicio interno `groupsapp-api-gateway`, donde corre NGINX.
+
 El gateway enruta:
 
 - `/api/auth/` -> `groupsapp-auth`
@@ -34,3 +36,16 @@ El gateway enruta:
 - `/api/messaging/` -> `groupsapp-messaging`
 - `/api/notifications/` -> `groupsapp-notifications`
 - `/` -> `groupsapp-frontend`
+
+## Replicas
+
+Los servicios de aplicacion quedan con 2 replicas:
+
+- `groupsapp-auth`
+- `groupsapp-groups`
+- `groupsapp-messaging`
+- `groupsapp-notifications`
+- `groupsapp-frontend`
+- `groupsapp-api-gateway`
+
+`groupsapp-rabbitmq` queda con 1 replica porque no esta configurado como cluster StatefulSet.

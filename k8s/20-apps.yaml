@@ -6,7 +6,7 @@ metadata:
   labels:
     app: groupsapp-auth
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app: groupsapp-auth
@@ -136,7 +136,7 @@ metadata:
   labels:
     app: groupsapp-groups
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app: groupsapp-groups
@@ -251,7 +251,7 @@ metadata:
   labels:
     app: groupsapp-messaging
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app: groupsapp-messaging
@@ -404,7 +404,7 @@ metadata:
   labels:
     app: groupsapp-notifications
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app: groupsapp-notifications
@@ -514,7 +514,7 @@ metadata:
   labels:
     app: groupsapp-frontend
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app: groupsapp-frontend

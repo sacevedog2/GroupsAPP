@@ -1,13 +1,31 @@
+apiVersion: eks.amazonaws.com/v1
+kind: IngressClassParams
+metadata:
+  name: groupsapp-alb
+spec:
+  scheme: internet-facing
+  ipAddressType: ipv4
+  subnets:
+    ids:
+      - subnet-0106505a4b096064e
+      - subnet-00a0f8bd7d8a25be2
+---
+apiVersion: networking.k8s.io/v1
+kind: IngressClass
+metadata:
+  name: alb
+spec:
+  controller: eks.amazonaws.com/alb
+  parameters:
+    apiGroup: eks.amazonaws.com
+    kind: IngressClassParams
+    name: groupsapp-alb
+---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: groupsapp-alb
   namespace: groupsapp
-  annotations:
-    alb.ingress.kubernetes.io/scheme: internet-facing
-    alb.ingress.kubernetes.io/target-type: ip
-    alb.ingress.kubernetes.io/healthcheck-path: /healthz
-    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80}]'
 spec:
   ingressClassName: alb
   rules:
